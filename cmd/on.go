@@ -21,19 +21,19 @@ var onCmd = &cobra.Command{
 Start proxy kernel and launch a shell with system proxy`,
 	GroupID: manageGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc := kernel.New()
-		IsActive, err := svc.IsActive()
+		var err error
+		k, err := kernel.New()
 		if err != nil {
 			return err
 		}
-		if !IsActive {
-			if err := svc.Start(); err != nil {
-				return err
-			}
+		if err = k.Start(); err != nil {
+			return err
 		}
-		log.Ok("已开启代理环境")
-		LaunchShell(withProxy())
-		return nil
+		if err = setProxy(); err != nil {
+			return err
+		}
+		log.Ok("代理环境配置成功")
+		return ExecShell()
 	},
 }
 
@@ -51,27 +51,24 @@ var proxyEnv = map[string]string{
 	NO_PROXY:    "localhost,127.0.0.1,::1,.local",
 }
 
-func getProxyEnv(env map[string]string) {
-	env[HTTP_PROXY] = "127.0.0.1:7890"
-	env[HTTPS_PROXY] = "127.0.0.1:7890"
-	env[ALL_PROXY] = "127.0.0.1:7890"
-}
+func setProxy() error {
+	proxyEnv[HTTP_PROXY] = "127.0.0.1:"
+	proxyEnv[HTTPS_PROXY] = "127.0.0.1:7890"
+	proxyEnv[ALL_PROXY] = "127.0.0.1:7890"
 
-func withProxy() []string {
-	getProxyEnv(proxyEnv)
 	for k, v := range proxyEnv {
 		os.Setenv(k, v)
 		os.Setenv(strings.ToLower(k), v)
 	}
-	return os.Environ()
+	return nil
 }
 
-func LaunchShell(env []string) {
+func ExecShell() error {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
 	}
-	syscall.Exec(shell, []string{shell, "-i"}, env)
+	return syscall.Exec(shell, []string{shell, "-i"}, os.Environ())
 }
 
 func init() {

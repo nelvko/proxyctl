@@ -3,20 +3,48 @@ package kernel
 import (
 	"context"
 	"fmt"
-	"github.com/charmbracelet/huh/spinner"
-	"golang.org/x/sys/cpu"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
-	"path"
+	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	"charm.land/huh/v2/spinner"
+	"golang.org/x/sys/cpu"
+
+	"github.com/nelvko/proxyctl/config"
 	"github.com/nelvko/proxyctl/httpx"
+	"github.com/nelvko/unisvc"
 )
+
+type Mihomo struct {
+	unisvc.Service
+}
+
+func (m Mihomo) TestConfig(configFile string) error {
+	cfg := config.Get()
+	cmd := exec.Command(
+		cfg.Kernel.BinPath,
+		"-t",
+		"-f", configFile,
+		"-d", cfg.Kernel.ConfigDir,
+	)
+	b, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to test config: %w\n%s", err, b)
+	}
+	return nil
+}
+
+func (m Mihomo) LatestVersion() (string, error) {
+	return "", nil
+}
+
+func (m Mihomo) Upgrade() error {
+	return nil
+}
 
 const (
 	mihomoDownloadBaseURL = "https://github.com/MetaCubeX/mihomo/releases/latest/download/"
@@ -24,7 +52,7 @@ const (
 )
 
 func MihomoLatestVersion() (string, error) {
-	versionURL := withProxy(mihomoVersionURL)
+	versionURL := httpx.GhProxy(mihomoVersionURL)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -61,7 +89,7 @@ func MihomoDownloadURL() (string, error) {
 	} else {
 		filename += ".gz"
 	}
-	return withProxy(mihomoDownloadBaseURL + filename), nil
+	return httpx.GhProxy(mihomoDownloadBaseURL + filename), nil
 }
 
 func mihomoBaseName() string {
@@ -130,19 +158,4 @@ func detectAMD64Level() string {
 	}
 
 	return "v1"
-}
-
-func withProxy(rawURL string) string {
-	proxyPrefix := os.Getenv(httpx.GH_PROXY)
-	if proxyPrefix == "" {
-		return rawURL
-	}
-
-	proxyURL, err := url.Parse(proxyPrefix)
-	if err != nil {
-		return rawURL
-	}
-	u, _ := url.Parse(rawURL)
-	proxyURL.Path = path.Join(proxyURL.Path, u.String())
-	return proxyURL.String()
 }

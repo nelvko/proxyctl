@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/url"
+	URL "net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -16,7 +16,7 @@ const (
 
 func Request(ctx context.Context, rawURL, method string, header map[string][]string, body io.Reader) (*http.Response, error) {
 	method = strings.ToUpper(method)
-	urlRes, err := url.Parse(rawURL)
+	urlRes, err := URL.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}

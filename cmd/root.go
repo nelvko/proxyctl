@@ -4,80 +4,84 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
+	"github.com/nelvko/proxyctl/cmd/sub"
 	"github.com/nelvko/proxyctl/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:              "proxyctl",
-	Short:            "Go proxy elegantly",
-	Long:             ``,
-	SilenceUsage:     true,
-	SilenceErrors:    false,
-	PersistentPreRun: CheckIsInitialized,
+	Use:           "proxyctl",
+	Short:         "Go proxy elegantly",
+	Long:          ``,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	Annotations:   skipInit,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		whiteList := []string{"init", "completion", "help"}
+		if slices.Contains(whiteList, cmd.Name()) {
+			return nil
+		}
+		if err := checkInitialized(); err != nil {
+			return err
+		}
+		return nil
+
+	},
 }
 
 var manageGroup = &cobra.Group{ID: "manage", Title: "Management Commands"}
+var skipInit map[string]string
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		// fmt.Fprintln(os.Stderr, err)
+		msg := strings.TrimRight(err.Error(), "\n")
+		fmt.Fprintln(os.Stderr, "Error: "+msg)
 	}
 }
 
 func init() {
+	rootCmd.AddCommand(sub.SubCmd)
+
 	rootCmd.AddGroup(manageGroup)
-	config.Load()
-	// DetectInitSystem()
-	// _, _ := LoadConfig()
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.clashgo.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
 }
 
-func CheckIsInitialized(cmd *cobra.Command, args []string) {
-	whiteList := []string{"init", "completion", "help"}
-	if slices.Contains(whiteList, cmd.Name()) {
-		return
+func checkInitialized() error {
+	err := config.Load()
+	if err == nil {
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return err
 	}
 
-	if errors.Is(viper.ReadInConfig(), os.ErrNotExist) {
-		var confirm bool
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title("🔧 Proxyctl is not initialized").
-					Description("🤔 Would you like to run the setup wizard now?").
-					Affirmative("🚀 Yes, let's go!").
-					Negative("🚫 No, maybe later").
-					Value(&confirm),
-			),
-		)
-		err := form.Run()
-		if err != nil {
-			fmt.Println("\nAborted.")
-			os.Exit(130)
-		}
-		if !confirm {
-			// fmt.Println("No problem! You can initialize whenever you're ready by running `proxyctl init`.")
-			os.Exit(0)
-		}
-		initCmd.Run(initCmd, []string{})
+	var confirm bool
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("🔧 Proxyctl is not initialized").
+				Description("🤔 Would you like to run the setup wizard now?").
+				Affirmative("🚀 Yes, let's go!").
+				Negative("🚫 No, maybe later").
+				Value(&confirm),
+		),
+	)
 
+	if err := form.Run(); err != nil {
+		return fmt.Errorf("failed to run program: %w", err)
 	}
+	if !confirm {
+		fmt.Println("No problem! You can initialize whenever you're ready by running `proxyctl init`.")
+		os.Exit(0)
+	}
+	return initCmd.RunE(initCmd, []string{})
+
 }

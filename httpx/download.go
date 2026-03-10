@@ -6,16 +6,36 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	URL "net/url"
+	"os"
+	"path"
 
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
+
+func GhProxy(url string) string {
+	ghProxy := os.Getenv("GH_PROXY")
+	if ghProxy == "" {
+		return url
+	}
+	ghProxyURL, err := URL.Parse(ghProxy)
+	if err != nil {
+		return url
+	}
+	rawURL, err := URL.Parse(url)
+	if err != nil {
+		return url
+	}
+	ghProxyURL.Path = path.Join(ghProxyURL.Path, rawURL.String())
+	return ghProxyURL.String()
+}
 
 var p *tea.Program
 
@@ -44,45 +64,18 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 }
 
 func Download(ctx context.Context, url string, dst io.Writer) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Don't add TUI if the header doesn't include content size
-	// it's impossible see progress without total
-	if resp.ContentLength <= 0 {
-		return errors.New("can't parse content length, aborting download")
-	}
-
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-
-	pw := &progressWriter{
-		total:  int(resp.ContentLength),
-		writer: dst,
-		reader: resp.Body,
-		onProgress: func(ratio float64) {
-			p.Send(progressMsg(ratio))
-		},
-	}
 	m := model{
-		spinner:  s,
-		pw:       pw,
-		progress: progress.New(progress.WithDefaultGradient()),
+		ctx:      ctx,
+		url:      url,
+		dst:      dst,
+		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("205")))),
+		progress: progress.New(progress.WithDefaultBlend()),
 	}
 
-	// Start Bubble Tea
 	p = tea.NewProgram(m)
 
 	// Start the download
-	go pw.Start()
+	// go pw.Start()
 	returnModel, err := p.Run()
 	m = returnModel.(model)
 	if m.err != nil {
@@ -115,12 +108,47 @@ type model struct {
 	spinner  spinner.Model
 	progress progress.Model
 	pw       *progressWriter
+	ctx      context.Context
+	url      string
+	dst      io.Writer
 	err      error
 }
 
 func (m model) Init() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		req, err := http.NewRequestWithContext(m.ctx, http.MethodGet, m.url, nil)
+		if err != nil {
+			return progressErrMsg{err}
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return progressErrMsg{err}
+		}
 
+		if resp.ContentLength <= 0 {
+			return progressErrMsg{errors.New("can't parse content length, aborting download")}
+		}
+
+		pw := &progressWriter{
+			total:  int(resp.ContentLength),
+			writer: m.dst,
+			reader: resp.Body,
+			onProgress: func(ratio float64) {
+				p.Send(progressMsg(ratio))
+			},
+		}
+		m.pw = pw
+		// 使用 goroutine 进行下载
+		go func() {
+			_, err := io.Copy(pw.writer, io.TeeReader(pw.reader, pw))
+			if err != nil {
+				p.Send(progressErrMsg{err})
+			}
+			// 这里确保下载完成后再关闭响应体
+			resp.Body.Close()
+		}()
+		return nil
+	})
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -134,9 +162,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		m.progress.Width = msg.Width - padding*2 - 4
-		if m.progress.Width > maxWidth {
-			m.progress.Width = maxWidth
+		m.progress.SetWidth(msg.Width - padding*2 - 4)
+		if m.progress.Width() > maxWidth {
+			m.progress.SetWidth(maxWidth)
 		}
 		return m, nil
 
@@ -156,8 +184,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// FrameMsg is sent when the progress bar wants to animate itself
 	case progress.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		m.progress = progressModel.(progress.Model)
+		var cmd tea.Cmd
+		m.progress, cmd = m.progress.Update(msg)
 		return m, cmd
 
 	default:
@@ -167,9 +195,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	pad := strings.Repeat(" ", padding)
-	return fmt.Sprintf("%s Downoading...\n\n", m.spinner.View()) +
-		pad + m.progress.View() + "\n\n" +
-		pad + helpStyle("Press q to quit.")
+	content := lipgloss.JoinVertical(
+		lipgloss.Top,
+		"\n",
+		m.spinner.View()+" Downloading...",
+		pad+m.progress.View(),
+		"\n",
+		pad+helpStyle("Press q to quit."),
+	)
+	return tea.NewView(content)
 }

@@ -2,26 +2,26 @@ package kernel
 
 import (
 	"github.com/nelvko/proxyctl/config"
-	"github.com/nelvko/unisvc/service"
+	"github.com/nelvko/unisvc"
 )
 
-type Kernel = string
+type Kernel interface {
+	unisvc.Service
+	Manager
+}
 
-const (
-	Clash   Kernel = "clash"
-	Mihomo  Kernel = "mihomo"
-	SingBox Kernel = "sing-box"
-)
+type Manager interface {
+	TestConfig(configFile string) error
+	LatestVersion() (string, error)
+	Upgrade() error
+}
 
-var AvailableKernel = []Kernel{Clash, Mihomo, SingBox}
-
-func New(args ...Kernel) service.Service {
-	var k Kernel
+func New(args ...string) (Kernel, error) {
+	kernelName := config.Get().Kernel.Name
 	if len(args) > 0 {
-		k = args[0]
-	} else {
-		cfg, _ := config.Load()
-		k = cfg.Kernel.Name
+		kernelName = string(args[0])
 	}
-	return service.New(k)
+	return &Mihomo{
+		unisvc.New(kernelName),
+	}, nil
 }

@@ -1,88 +1,56 @@
 package config
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/nelvko/proxyctl/httpx"
 	"github.com/spf13/viper"
+	"go.yaml.in/yaml/v3"
 )
 
-type Config struct {
-	InitSystem string `mapstructure:"initSystem"`
+type config struct {
+	InitSystem string `mapstructure:"initsystem"`
 
 	Kernel struct {
 		Name       string `mapstructure:"name"`
-		BinPath    string `mapstructure:"binPath"`
-		ConfigDir  string `mapstructure:"configDir"`
-		ConfigFile string `mapstructure:"configFile"`
+		BinPath    string `mapstructure:"binpath"`
+		ConfigDir  string `mapstructure:"configdir"`
+		ConfigFile string `mapstructure:"configfile"`
 	} `mapstructure:"kernel"`
-
-	GitHubProxy string `mapstructure:"githubProxy"`
 }
 
+const (
+	AppName = "proxyctl"
+)
+
 var (
-	myAppName    = "proxyctl"
-	MyConfigDir  string
-	MyConfigFile string
+	AppConfigFile string
+
+	cfg config
+	v   = viper.New()
 )
 
 func init() {
-	// if os.Geteuid() == 0 {
-	MyConfigDir = filepath.Join("/etc", myAppName)
-	MyConfigFile = filepath.Join(MyConfigDir, "config.yaml")
-	// } else {
-	// cfgDir, _ := os.UserConfigDir()
-	// MyConfigDir = filepath.Join(cfgDir, myAppName)
-	// MyConfigFile = filepath.Join(MyConfigDir, "config.yaml")
-	// }
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	// viper.AddConfigPath(filepath.Join(MyConfigDir, myAppName))
-
-	viper.AddConfigPath(filepath.Join("/etc", myAppName))
+	cfgDir, _ := os.UserConfigDir()
+	AppConfigFile = filepath.Join(cfgDir, AppName, "config.yaml")
+	v.SetConfigFile(AppConfigFile)
 }
 
-func Load() (*Config, error) {
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
+func Load() error {
+	if err := v.ReadInConfig(); err != nil {
+		return err
 	}
-	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	return v.Unmarshal(&cfg)
 }
 
-func Save(cfg *Config) error {
-	var configMap map[string]any
+func Get() *config {
+	return &cfg
+}
 
-	data, err := json.Marshal(cfg)
+func Save() error {
+	data, err := yaml.Marshal(&cfg)
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return err
 	}
-	if err := json.Unmarshal(data, &configMap); err != nil {
-		return fmt.Errorf("failed to unmarshal config to map: %w", err)
-	}
-
-	for k, v := range configMap {
-		viper.Set(k, v)
-	}
-	return viper.WriteConfig()
-}
-
-func Init() *Config {
-	cfg := &Config{}
-	cfg.GitHubProxy = os.Getenv(httpx.GH_PROXY)
-
-	// if os.Geteuid() == 0 {
-	// 	cfg.Kernel.BinPath = "/usr/local/bin"
-	// } else {
-	// 	home, _ := os.UserHomeDir()
-	// 	cfg.Kernel.BinPath = filepath.Join(home, ".local", "bin")
-	// }
-
-	return cfg
+	return os.WriteFile(AppConfigFile, data, 0644)
 }
