@@ -5,6 +5,7 @@ package sub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	URL "net/url"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/nelvko/proxyctl/httpx"
 	"github.com/nelvko/proxyctl/log"
 	"github.com/spf13/cobra"
@@ -100,6 +102,9 @@ func addProfile(p profile) error {
 }
 
 func checkUniqueName(name string) error {
+	if name == "" {
+		return errors.New("can't empty")
+	}
 	ok := slices.ContainsFunc(cfg.Items, func(p profile) bool {
 		return p.Name == name
 	})
@@ -121,22 +126,23 @@ func init() {
 	SubCmd.AddCommand(addCmd)
 	addCmd.Flags().StringVarP(&name, "name", "n", name, "Specified profile's unique name")
 }
-
+var descStyle=lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
 func initialForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Subscription URL").
-				Description("support http, file scheme").
+				Description(descStyle.Render("support http, file scheme")).
 				Value(&url).
 				Validate(func(s string) error {
 					if url == "" {
-						return fmt.Errorf("can't empty")
+						return errors.New("can't empty")
 					}
 					return nil
 				}),
 			huh.NewInput().
 				Title("Subscription Name").
+				Description(descStyle.Render("should be unique")).
 				Validate(checkUniqueName).
 				Value(&name),
 		),

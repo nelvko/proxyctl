@@ -199,11 +199,9 @@ func (m model) View() tea.View {
 	pad := strings.Repeat(" ", padding)
 	content := lipgloss.JoinVertical(
 		lipgloss.Top,
-		"\n",
 		m.spinner.View()+" Downloading...",
 		pad+m.progress.View(),
-		"\n",
-		pad+helpStyle("Press q to quit."),
+		pad+helpStyle("Press q to quit.\n"),
 	)
 	return tea.NewView(content)
 }
