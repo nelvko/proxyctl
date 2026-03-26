@@ -1,6 +1,6 @@
 module github.com/nelvko/proxyctl
 
-go 1.25.8
+go 1.26.0
 
 replace github.com/nelvko/unisvc => ../unisvc
 
@@ -44,7 +44,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.21 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pelletier/go-toml/v2 v2.3.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect

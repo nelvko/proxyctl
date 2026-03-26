@@ -2,6 +2,7 @@ package sub
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"os"
 	"os/exec"
@@ -10,20 +11,18 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
-
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 )
 
-var statusOkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render
-var statusFailStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-
 const (
 	throttleInterval    = 1 * time.Second
 	doublePressInterval = 300 * time.Millisecond
-	noProfilesMessage   = "No profiles available. Please add a profile first."
+
+	statusMessageLifetime = 2 * time.Second
+	appBoundaryMargin     = 1
 )
 
 type item profile
@@ -41,8 +40,8 @@ func listItemsFromProfiles(items []profile) []list.Item {
 }
 
 type styles struct {
-	HeaderText,
-	ErrorHeaderText lipgloss.Style
+	HeaderText, ErrorHeaderText lipgloss.Style
+	statusOk, statusFail        lipgloss.Style
 
 	Red, Indigo, Green color.Color
 }
@@ -62,6 +61,9 @@ func newStyles(darkBG bool) styles {
 	s.ErrorHeaderText = s.HeaderText.
 		Foreground(s.Red)
 
+	s.statusOk = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	s.statusFail = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+
 	return s
 }
 
@@ -73,9 +75,7 @@ const (
 )
 
 type keyMap struct {
-	ForceQuit key.Binding
-	Quit      key.Binding
-	EscQuit   key.Binding
+	More      key.Binding
 	EscCancel key.Binding
 	Add       key.Binding
 	Modify    key.Binding
@@ -85,16 +85,9 @@ type keyMap struct {
 }
 
 var keys = keyMap{
-	ForceQuit: key.NewBinding(
-		key.WithKeys("ctrl+c"),
-	),
-	Quit: key.NewBinding(
-		key.WithKeys("q"),
-		key.WithHelp("q", "quit"),
-	),
-	EscQuit: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "quit"),
+	More: key.NewBinding(
+		key.WithKeys("?"),
+		key.WithHelp("?", "more"),
 	),
 	EscCancel: key.NewBinding(
 		key.WithKeys("esc"),
@@ -123,12 +116,15 @@ var keys = keyMap{
 }
 
 type model struct {
-	styles styles
-	list   list.Model
+	height, width int
+
+	list list.Model
 
 	form        *huh.Form
 	formAction  formAction
 	formFocused bool
+
+	styles styles
 
 	lastPress struct {
 		d, enter time.Time
@@ -139,43 +135,39 @@ type model struct {
 
 func initialModel() model {
 	m := model{
-		list: list.New(nil, list.NewDefaultDelegate(), 0, 0),
+		list: list.New(listItemsFromProfiles(cfg.Items), list.NewDefaultDelegate(), 0, 0),
 	}
-	m.list.SetSpinner(spinner.MiniDot)
+	m.list.Styles.TitleBar = m.list.Styles.TitleBar.PaddingLeft(3)
+	m.list.SetSpinner(spinner.Dot)
 
 	m.list.SetShowHelp(false)
-	m.list.SetItems(listItemsFromProfiles(cfg.Items))
-	m.list.DisableQuitKeybindings()
-	keyBindingFn := func() []key.Binding {
+
+	m.list.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			keys.Edit,
 			keys.Add,
 			keys.Modify,
 			keys.Delete,
 			keys.Use,
-			keys.Quit,
 		}
 	}
-	m.list.AdditionalShortHelpKeys = keyBindingFn
-	m.list.AdditionalFullHelpKeys = keyBindingFn
+	m.list.AdditionalFullHelpKeys = m.list.AdditionalShortHelpKeys
 
 	m.list.Title = "use: " + cfg.Use
 
 	m.list.SetStatusBarItemName("profile", "profiles")
-	m.list.StatusMessageLifetime = 2 * time.Second
+	m.list.StatusMessageLifetime = statusMessageLifetime
 	return m
 }
 func (m model) Init() tea.Cmd {
 	return tea.RequestBackgroundColor
 }
+
+// message will be persistented if return nil, else will disappear after statusMessageLifetime
 func (m *model) errorMessage(message string) tea.Cmd {
 	m.err = errors.New(message)
-	m.list.NewStatusMessage(statusFailStyle.Render((message)))
+	m.list.NewStatusMessage(m.styles.statusFail.Render((message)))
 	return nil
-}
-
-func (m *model) noProfilesError() tea.Cmd {
-	return m.errorMessage(noProfilesMessage)
 }
 
 func (m *model) pendingMessage(message string) tea.Cmd {
@@ -184,242 +176,220 @@ func (m *model) pendingMessage(message string) tea.Cmd {
 }
 
 func (m *model) successMessage(message string) tea.Cmd {
-	return m.list.NewStatusMessage(statusOkStyle(message))
+	return m.list.NewStatusMessage(m.styles.statusOk.Render(message))
 }
 
 func (m *model) cancelForm() tea.Cmd {
 	m.formFocused = false
 	m.form = nil
-	m.formAction = formActionAdd
 	name = ""
 	url = ""
 	return m.successMessage("Canceled")
 }
 
-type editorFinishedMsg struct{ err error }
+type editorFinishedMsg struct {
+	item item
+	err  error
+}
 type useFinishedMsg struct{ err error }
 type addFinishedMsg struct {
-	profile profile
 	err     error
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-
-	var selectedItem *item
-	if sel := m.list.SelectedItem(); sel != nil {
-		a := sel.(item)
-		selectedItem = &a
-	}
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if key.Matches(msg, keys.ForceQuit) {
-			return m, tea.Quit
-
-		}
-		filterState := m.list.FilterState()
-		if filterState == list.Filtering {
-			break
-		}
-		if filterState == list.FilterApplied && key.Matches(msg, keys.EscQuit) {
-			break
-		}
 		if m.err != nil {
 			m.err = nil
 			return m, m.successMessage("")
 		}
-
-		if m.formFocused {
-			switch {
-			case key.Matches(msg, keys.ForceQuit):
-				return m, tea.Quit
-			case key.Matches(msg, keys.EscCancel):
-				return m, m.cancelForm()
-			}
-			break
-		}
-
-		switch {
-		case key.Matches(msg, keys.Quit):
-			return m, tea.Quit
-		case key.Matches(msg, keys.EscQuit):
-			if m.form != nil {
-				return m, m.cancelForm()
-			}
-			return m, tea.Quit
-		case key.Matches(msg, keys.Add):
-			m.formFocused = true
-			m.formAction = formActionAdd
-			form := initialForm().WithShowHelp(false)
-			m.form = form
-			return m, form.Init()
-		case key.Matches(msg, keys.Modify), key.Matches(msg, keys.Edit), key.Matches(msg, keys.Delete), key.Matches(msg, keys.Use):
-			if selectedItem == nil {
-				return m, m.noProfilesError()
-			}
-
-			switch {
-			case key.Matches(msg, keys.Modify):
-				m.formFocused = true
-				m.formAction = formActionModify
-				name = selectedItem.Name
-				url = selectedItem.Url
-				form := initialForm().WithShowHelp(false)
-				m.form = form
-				return m, form.Init()
-			case key.Matches(msg, keys.Edit):
-				var editorPath string
-				if envEd := os.Getenv("EDITOR"); envEd != "" {
-					if p, err := exec.LookPath(envEd); err == nil {
-						editorPath = p
-					}
-				}
-				if editorPath == "" {
-					priorityList := []string{"nvim", "vim", "vi", "nano", "code", "notepad"}
-					// priorityList := []string{"nvim"}
-					for _, name := range priorityList {
-						if p, err := exec.LookPath(name); err == nil {
-							editorPath = p
-							break
-						}
-					}
-				}
-				if editorPath == "" {
-					return m, m.errorMessage("no supported editor")
-				}
-				file := selectedItem.File
-				c := exec.Command(editorPath, file)
-				return m, tea.ExecProcess(c, func(err error) tea.Msg {
-					return editorFinishedMsg{err: err}
-				})
-			case key.Matches(msg, keys.Delete):
-				if time.Since(m.lastPress.d) > doublePressInterval {
-					m.lastPress.d = time.Now()
-					return m, nil
-				}
-				if err := delProfile(selectedItem.Name); err != nil {
-					return m, m.errorMessage(err.Error())
-				}
-				m.list.RemoveItem(m.list.GlobalIndex())
-				m.lastPress.d = time.Now()
-				return m, m.successMessage("Deleted " + selectedItem.Name)
-			case key.Matches(msg, keys.Use):
-				if time.Since(m.lastPress.enter) < throttleInterval {
-					return m, nil
-				}
-				m.lastPress.enter = time.Now()
-				return m, tea.Batch(
-					m.pendingMessage("wait a moment..."),
-					m.list.StartSpinner(),
-					func() tea.Msg {
-						if err := useFunc(selectedItem.Name); err != nil {
-							return useFinishedMsg{err}
-						}
-						return useFinishedMsg{}
-					})
-			}
-		}
-	case editorFinishedMsg:
-		//  todo valid config
-		err := msg.err
-		if err != nil {
-
-			return m, m.errorMessage(err.Error())
-		}
-	case useFinishedMsg:
-		m.list.StopSpinner()
-		err := msg.err
-		if err != nil {
-			return m, m.errorMessage(strings.TrimRight(err.Error(), "\n"))
-		}
-		m.list.Title = "use: " + cfg.Use
-		return m, m.successMessage("used")
-	case addFinishedMsg:
-		m.list.StopSpinner()
-		if msg.err != nil {
-			return m, m.errorMessage(strings.TrimRight(msg.err.Error(), "\n"))
-		}
-		cmds = append(cmds, m.list.SetItems(listItemsFromProfiles(cfg.Items)))
-		m.list.Select(len(cfg.Items) - 1)
-		m.list.Title = "use: " + cfg.Use
-		cmds = append(cmds, m.successMessage("Added "+msg.profile.Name))
-		return m, tea.Batch(cmds...)
 	case tea.WindowSizeMsg:
-
-		h := lipgloss.Height(header) + lipgloss.Height(footer)
-		m.list.SetSize(msg.Width, msg.Height-h)
+		m.width = msg.Width
+		m.height = msg.Height
 	case tea.BackgroundColorMsg:
 		m.styles = newStyles(msg.IsDark())
 		return m, nil
 	}
 	if m.formFocused {
-		newForm, cmd := m.form.Update(msg)
-		m.form = newForm.(*huh.Form)
-		cmds = append(cmds, cmd)
-		if m.form.State == huh.StateCompleted {
-			submittedName := name
-			submittedURL := url
-			action := m.formAction
-			m.formFocused = false
-			m.form = nil
-			m.formAction = formActionAdd
-			name = ""
-			url = ""
-
-			switch action {
-			case formActionAdd:
-				cmds = append(cmds,
-					m.pendingMessage("adding profile..."),
-					m.list.StartSpinner(),
-					func() tea.Msg {
-						p, err := prepareProfile(submittedName, submittedURL, plainDownloadProfile)
-						if err == nil {
-							err = addProfile(p)
-						}
-						return addFinishedMsg{profile: p, err: err}
-					},
-				)
-			case formActionModify:
-				return m, m.errorMessage("modify is not implemented yet")
-			}
-		}
+		cmds = append(cmds, m.handleForm(msg))
 	} else {
-		newListModel, cmd := m.list.Update(msg)
-		m.list = newListModel
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, m.handleList(msg))
 	}
 	return m, tea.Batch(cmds...)
 }
 
-var (
-	appBoundaryTopStyle    = lipgloss.NewStyle().MarginBottom(1)
-	appBoundaryBottomStyle = lipgloss.NewStyle().MarginTop(1)
-)
+func (m *model) handleList(msg tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
+	var selectedItem item
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if filterState := m.list.FilterState(); filterState == list.Filtering {
+			break
+		}
+		if len(m.list.Items()) == 0 && key.Matches(msg, keys.Delete, keys.Edit, keys.Modify, keys.Use) {
+			return m.errorMessage("No profiles available. Please add a profile first.")
+		}
+		selectedItem = m.list.SelectedItem().(item)
+		switch {
+		case key.Matches(msg, keys.Add, keys.Modify):
+			if key.Matches(msg, keys.Modify) {
+				m.formAction = formActionModify
+				name = selectedItem.Name
+				url = selectedItem.Url
+			} else {
+				m.formAction = formActionAdd
+			}
+			m.formFocused = true
+			form := initialForm().WithShowHelp(false)
+			m.form = form
+			return form.Init()
+		case key.Matches(msg, keys.Edit):
+			cmd, err := getEditorCommand(selectedItem.File)
+			if err != nil {
+				return m.errorMessage(err.Error())
+			}
+			return tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return editorFinishedMsg{item: selectedItem, err: err}
+			})
+		case key.Matches(msg, keys.Delete):
+			if time.Since(m.lastPress.d) > doublePressInterval {
+				m.lastPress.d = time.Now()
+				return nil
+			}
+			if err := delProfile(selectedItem.Name); err != nil {
+				return m.errorMessage(err.Error())
+			}
+			m.list.RemoveItem(m.list.GlobalIndex())
+			m.lastPress.d = time.Now()
+			return m.successMessage("Deleted " + selectedItem.Name)
+		case key.Matches(msg, keys.Use):
+			if time.Since(m.lastPress.enter) < throttleInterval {
+				return nil
+			}
+			m.lastPress.enter = time.Now()
+			return tea.Batch(
+				m.pendingMessage("wait a moment..."),
+				m.list.StartSpinner(),
+				func() tea.Msg {
+					if err := useFunc(selectedItem.Name); err != nil {
+						return useFinishedMsg{err}
+					}
+					return useFinishedMsg{}
+				})
 
-var header, footer string
+		case key.Matches(msg, keys.More):
+			m.list.SetShowHelp(!m.list.ShowHelp())
+
+		}
+	case editorFinishedMsg:
+		if msg.err != nil {
+			return m.errorMessage(msg.err.Error())
+		}
+		if err := k.TestConfig(msg.item.File); err != nil {
+			return m.errorMessage(fmt.Errorf("%w\nplease check profile %s and correct any errors", err, msg.item.Name).Error())
+		}
+	case useFinishedMsg:
+		m.list.StopSpinner()
+		if msg.err != nil {
+			return m.errorMessage(msg.err.Error())
+		}
+		m.list.Title = "use: " + cfg.Use
+		return m.successMessage("used")
+	case addFinishedMsg:
+		m.list.StopSpinner()
+		if msg.err != nil {
+			return m.errorMessage(strings.TrimRight(msg.err.Error(), "\n"))
+		}
+		cmds = append(cmds, m.list.SetItems(listItemsFromProfiles(cfg.Items)))
+		m.list.Select(len(cfg.Items) - 1)
+		m.list.Title = "use: " + cfg.Use
+		cmds = append(cmds, m.successMessage("Added "))
+		return tea.Batch(cmds...)
+	}
+	newListModel, cmd := m.list.Update(msg)
+	m.list = newListModel
+	cmds = append(cmds, cmd)
+	return tea.Batch(cmds...)
+}
+
+func (m *model) handleForm(msg tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.EscCancel):
+			return m.cancelForm()
+		}
+
+	}
+	newForm, cmd := m.form.Update(msg)
+	m.form = newForm.(*huh.Form)
+	cmds = append(cmds, cmd)
+	return tea.Batch(cmds...)
+}
+
+func getEditorCommand(file string) (*exec.Cmd, error) {
+	if envEd := os.Getenv("EDITOR"); envEd != "" {
+		parts := strings.Fields(envEd)
+		if len(parts) > 0 {
+			cmdName := parts[0]
+			if p, err := exec.LookPath(cmdName); err == nil {
+				args := append(parts[1:], file)
+				return exec.Command(p, args...), nil
+			}
+		}
+	}
+	priorityList := []string{"nvim", "vim", "vi", "nano", "code", "notepad"}
+	for _, name := range priorityList {
+		if p, err := exec.LookPath(name); err == nil {
+			return exec.Command(p, file), nil
+		}
+	}
+	return nil, errors.New("no supported editor found. please set the EDITOR environment variable")
+}
 
 func (m model) View() tea.View {
-	body := m.list.View()
-	m.list.KeyMap.ShowFullHelp.SetEnabled(false)
-	helpView := m.list.Help.ShortHelpView(m.list.ShortHelp())
-	if m.formFocused {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), "   ", m.form.View())
-		formKeys := m.form.KeyBinds()
-		formKeys = append(formKeys, keys.EscCancel)
-		helpView = m.form.Help().ShortHelpView(formKeys)
-
-	}
-	header = m.appBoundaryView(lipgloss.Center, "Subscription")
-	footer = m.appBoundaryView(lipgloss.Left, helpView)
-
+	var header, body, footer string
+	list := m.list
 	if m.err != nil {
 		header = m.appErrorBoundaryView(lipgloss.Center, "Subscription")
-		// footer = m.appErrorBoundaryView(lipgloss.Left, "warning")
 		footer = m.appErrorBoundaryView(lipgloss.Left, "Press any key to continue")
+		bodyHeight := m.height - 2*appBoundaryMargin - lipgloss.Height(header) - lipgloss.Height(footer)
+		if bodyHeight < 0 {
+			bodyHeight = 0
+		}
+		if lipgloss.Height(m.err.Error()) > 1 {
+			header = m.appErrorBoundaryView(lipgloss.Center, "WARNING")
+			body = lipgloss.NewStyle().Width(m.width).Height(bodyHeight).AlignVertical(lipgloss.Center).Render(m.err.Error())
+		} else {
+			list.SetSize(m.width, bodyHeight)
+			body = list.View()
+		}
+	} else {
+		header = m.appBoundaryView(lipgloss.Center, "Subscription")
+		switch {
+		case m.formFocused:
+			footer = m.appBoundaryView(lipgloss.Left, m.form.Help().ShortHelpView(append(m.form.KeyBinds(), keys.EscCancel)))
+		case m.list.ShowHelp():
+			footer = m.appBoundaryView(lipgloss.Left, "")
+		default:
+			footer = m.appBoundaryView(lipgloss.Left, m.list.Help.ShortHelpView(m.list.ShortHelp()))
+		}
+		bodyHeight := m.height - 2*appBoundaryMargin - lipgloss.Height(header) - lipgloss.Height(footer)
+		if bodyHeight < 0 {
+			bodyHeight = 0
+		}
+		if m.formFocused {
+			listWidth := m.width / 2
+			list.SetSize(listWidth, bodyHeight)
+			body = lipgloss.JoinHorizontal(lipgloss.Top, list.View(), m.form.View())
+		} else {
+			list.SetSize(m.width, bodyHeight)
+			body = list.View()
+		}
 	}
-	header = appBoundaryTopStyle.Render(header)
-	footer = appBoundaryBottomStyle.Render(footer)
+	body = lipgloss.NewStyle().Margin(appBoundaryMargin, 0).Render(body)
 	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
 	v.AltScreen = true
 	return v
@@ -427,7 +397,7 @@ func (m model) View() tea.View {
 
 func (m model) appBoundaryView(position lipgloss.Position, text string) string {
 	return lipgloss.PlaceHorizontal(
-		m.list.Width(),
+		m.width,
 		position,
 		m.styles.HeaderText.Render(text),
 		lipgloss.WithWhitespaceChars("/"),
@@ -437,7 +407,7 @@ func (m model) appBoundaryView(position lipgloss.Position, text string) string {
 
 func (m model) appErrorBoundaryView(position lipgloss.Position, text string) string {
 	return lipgloss.PlaceHorizontal(
-		m.list.Width(),
+		m.width,
 		position,
 		m.styles.ErrorHeaderText.Render(text),
 		lipgloss.WithWhitespaceChars("/"),

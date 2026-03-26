@@ -23,25 +23,24 @@ type Mihomo struct {
 	unisvc.Service
 }
 
+// TestConfig tests the configuration file for Mihomo by executing the Mihomo binary.
+// It captures the output and returns an error if the test fails.
 func (m Mihomo) TestConfig(configFile string) error {
 	cfg := config.Get()
 	cmd := exec.Command(
-		cfg.Kernel.BinPath,
+		cfg.Kernel.Bin,
 		"-t",
 		"-f", configFile,
 		"-d", cfg.Kernel.ConfigDir,
 	)
-	b, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to test config: %w\n%s", err, b)
+		return fmt.Errorf("test config: \n%s", out)
 	}
 	return nil
 }
 
-func (m Mihomo) LatestVersion() (string, error) {
-	return "", nil
-}
-
+// Upgrade core
 func (m Mihomo) Upgrade() error {
 	return nil
 }
@@ -51,7 +50,8 @@ const (
 	mihomoVersionURL      = mihomoDownloadBaseURL + "version.txt"
 )
 
-func MihomoLatestVersion() (string, error) {
+// LatestVersion fetches the latest version of Mihomo from the Github.
+func latestVersion() (string, error) {
 	versionURL := httpx.GhProxy(mihomoVersionURL)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -72,14 +72,16 @@ func MihomoLatestVersion() (string, error) {
 		Run()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch version: %w", err)
+		return "", fmt.Errorf("fetch version: %w", err)
 	}
 
 	return content, nil
 }
-
-func MihomoDownloadURL() (string, error) {
-	latestVersion, err := MihomoLatestVersion()
+// DownloadURL constructs the download URL for the Mihomo binary based on the latest version
+// and the current system architecture. 
+// It returns the download URL as a string or an error if it fails to fetch the latest version.
+func (m Mihomo) DownloadURL() (string, error) {
+	latestVersion, err := latestVersion()
 	if err != nil {
 		return "", err
 	}

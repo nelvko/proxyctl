@@ -12,7 +12,7 @@ type Kernel interface {
 
 type Manager interface {
 	TestConfig(configFile string) error
-	LatestVersion() (string, error)
+	DownloadURL() (string, error)
 	Upgrade() error
 }
 

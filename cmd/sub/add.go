@@ -117,6 +117,7 @@ func checkUniqueName(name string) error {
 var (
 	// flags
 	name string
+	use  bool
 
 	// args
 	url string
@@ -124,9 +125,10 @@ var (
 
 func init() {
 	SubCmd.AddCommand(addCmd)
-	addCmd.Flags().StringVarP(&name, "name", "n", name, "Specified profile's unique name")
+	addCmd.Flags().StringVarP(&name, "name", "n", name, "Assign a name to the profile")
+	addCmd.Flags().BoolVarP(&use, "use", "u", use, "Use the profile after adding")
 }
-var descStyle=lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
+var descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
 func initialForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(

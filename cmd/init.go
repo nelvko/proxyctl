@@ -107,7 +107,7 @@ func CanWriteTo(path string) error {
 	return nil
 }
 func checkExists() string {
-	_, err := os.Stat(cfg.Kernel.BinPath)
+	_, err := os.Stat(cfg.Kernel.Bin)
 	if err == nil {
 		s := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 		return s.Render("already exists files: %s, it will overwrite old")
@@ -175,7 +175,7 @@ func InitSteps() error {
 				SuggestionsFunc(func() []string {
 					return []string{defaultBinPath()}
 				}, &cfg.Kernel.Name).
-				Value(&cfg.Kernel.BinPath).
+				Value(&cfg.Kernel.Bin).
 				Validate(CanWriteTo),
 
 			huh.NewInput().
@@ -199,10 +199,11 @@ func InitSteps() error {
 	if _, err := os.Create(cfg.Kernel.ConfigFile); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.Kernel.BinPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cfg.Kernel.Bin), 0755); err != nil {
 		return err
 	}
-	url, err := kernel.MihomoDownloadURL()
+	k, _ = kernel.New(cfg.Kernel.Name)
+	url, err := k.DownloadURL()
 	if err != nil {
 		return err
 	}
@@ -230,23 +231,18 @@ func InitSteps() error {
 	// 	return fmt.Errorf("failed to seek file: %w", err)
 	// }
 
-	if err := httpx.Ungzip(f, cfg.Kernel.BinPath); err != nil {
+	if err := httpx.Ungzip(f, cfg.Kernel.Bin); err != nil {
 		return fmt.Errorf("failed to extract file: %w", err)
 	}
-	if err := os.Chmod(cfg.Kernel.BinPath, 0755); err != nil {
+	if err := os.Chmod(cfg.Kernel.Bin, 0755); err != nil {
 		return err
 	}
 
-	svc, _ = kernel.New(cfg.Kernel.Name)
-
-	err = svc.Install(&unisvc.Spec{
-		Description: "proxy daemon",
-		Command:     cfg.Kernel.BinPath,
-		Args: []string{
-			"-d", cfg.Kernel.ConfigDir,
-		},
-	})
-	if err != nil {
+	spec := unisvc.Spec{
+		Command: cfg.Kernel.Bin,
+		Args:    []string{"-d", cfg.Kernel.ConfigDir, "-f", cfg.Kernel.ConfigFile},
+	}
+	if err := svc.Install(&spec); err != nil {
 		return err
 	}
 	return nil

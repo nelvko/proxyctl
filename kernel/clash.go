@@ -15,7 +15,7 @@ type Clash struct {
 func (m Clash) TestConfig(configFile string) (bool, error) {
 	cfg := config.Get()
 	cmd := exec.Command(
-		cfg.Kernel.BinPath,
+		cfg.Kernel.Bin,
 		"-t",
 		"-f", configFile,
 		"-d", cfg.Kernel.ConfigDir,
@@ -27,7 +27,7 @@ func (m Clash) TestConfig(configFile string) (bool, error) {
 	return true, nil
 }
 
-func (m Clash) LatestVersion() (string, error) {
+func (m Clash) latestVersion() (string, error) {
 	return "v1.1.1", nil
 }
 

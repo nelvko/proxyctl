@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 
 	"github.com/nelvko/proxyctl/config"
+	"github.com/nelvko/proxyctl/kernel"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-// subCmd represents the sub command
+// SubCmd represents the sub command
 var SubCmd = &cobra.Command{
 	Use:   "sub",
 	Short: "Manage Subscriptions",
@@ -23,15 +24,19 @@ var SubCmd = &cobra.Command{
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		parent := cmd.Parent()
-		if err := parent.PersistentPreRunE(parent, args); err != nil {
+		var err error
+		if err = parent.PersistentPreRunE(parent, args); err != nil {
 			return err
 		}
 
-		if err := v.ReadInConfig(); err != nil {
+		if err = v.ReadInConfig(); err != nil {
 			return err
 		}
 
-		if err := v.Unmarshal(&cfg); err != nil {
+		if err = v.Unmarshal(&cfg); err != nil {
+			return err
+		}
+		if k, err = kernel.New(); err != nil {
 			return err
 		}
 		return nil
@@ -41,6 +46,7 @@ var SubCmd = &cobra.Command{
 var (
 	v   = viper.New()
 	cfg Config
+	k   kernel.Kernel
 
 	profilesDir    string
 	profilesConfig string

@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nelvko/proxyctl/kernel"
 	"github.com/nelvko/proxyctl/log"
 	"github.com/spf13/cobra"
 )
@@ -19,11 +18,7 @@ var offCmd = &cobra.Command{
 	Long:    `Stop proxy kernel and launch a shell without system proxy`,
 	GroupID: manageGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, err := kernel.New()
-		if err != nil {
-			return err
-		}
-		if err := svc.Stop(); err != nil {
+		if err := k.Stop(); err != nil {
 			return err
 		}
 		unsetProxy()

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/nelvko/proxyctl/kernel"
 	"github.com/nelvko/proxyctl/log"
 	"github.com/spf13/cobra"
 )
@@ -22,10 +21,6 @@ Start proxy kernel and launch a shell with system proxy`,
 	GroupID: manageGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var err error
-		k, err := kernel.New()
-		if err != nil {
-			return err
-		}
 		if err = k.Start(); err != nil {
 			return err
 		}

@@ -19,19 +19,20 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
-
-func GhProxy(url string) string {
-	ghProxy := os.Getenv("GH_PROXY")
+// GhProxy returns the URL of the GitHub proxy if the GITHUB_PROXY environment variable is set, 
+// otherwise it returns the original URL.
+func GhProxy(raw string) string {
+	ghProxy := os.Getenv("GITHUB_PROXY")
 	if ghProxy == "" {
-		return url
+		return raw
 	}
 	ghProxyURL, err := URL.Parse(ghProxy)
 	if err != nil {
-		return url
+		return raw
 	}
-	rawURL, err := URL.Parse(url)
+	rawURL, err := URL.Parse(raw)
 	if err != nil {
-		return url
+		return raw
 	}
 	ghProxyURL.Path = path.Join(ghProxyURL.Path, rawURL.String())
 	return ghProxyURL.String()

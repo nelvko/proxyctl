@@ -12,8 +12,11 @@ import (
 	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/cmd/sub"
 	"github.com/nelvko/proxyctl/config"
+	"github.com/nelvko/proxyctl/kernel"
 	"github.com/spf13/cobra"
 )
+
+var k kernel.Kernel
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -25,10 +28,14 @@ var rootCmd = &cobra.Command{
 	Annotations:   skipInit,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		whiteList := []string{"init", "completion", "help"}
+		var err error
 		if slices.Contains(whiteList, cmd.Name()) {
 			return nil
 		}
-		if err := checkInitialized(); err != nil {
+		if err = checkInitialized(); err != nil {
+			return err
+		}
+		if k, err = kernel.New(); err != nil {
 			return err
 		}
 		return nil

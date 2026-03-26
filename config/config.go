@@ -13,7 +13,7 @@ type config struct {
 
 	Kernel struct {
 		Name       string `mapstructure:"name"`
-		BinPath    string `mapstructure:"binpath"`
+		Bin    string `mapstructure:"bin"`
 		ConfigDir  string `mapstructure:"configdir"`
 		ConfigFile string `mapstructure:"configfile"`
 	} `mapstructure:"kernel"`

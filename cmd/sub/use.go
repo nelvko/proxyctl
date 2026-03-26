@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/nelvko/proxyctl/config"
-	"github.com/nelvko/proxyctl/kernel"
 	"github.com/nelvko/proxyctl/log"
 	"github.com/spf13/cobra"
 )
@@ -61,10 +60,6 @@ func useFunc(profileName string) error {
 		return err
 	}
 	if err := os.WriteFile(kernelCfg, bytes, 0666); err != nil {
-		return err
-	}
-	k, err := kernel.New()
-	if err != nil {
 		return err
 	}
 	if err := k.Restart(); err != nil {
