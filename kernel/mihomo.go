@@ -26,12 +26,12 @@ type Mihomo struct {
 // TestConfig tests the configuration file for Mihomo by executing the Mihomo binary.
 // It captures the output and returns an error if the test fails.
 func (m Mihomo) TestConfig(configFile string) error {
-	cfg := config.Get()
+	kernelCfg := config.AppCfg.Kernel
 	cmd := exec.Command(
-		cfg.Kernel.Bin,
+		kernelCfg.Bin,
 		"-t",
 		"-f", configFile,
-		"-d", cfg.Kernel.ConfigDir,
+		"-d", kernelCfg.ConfigDir,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -52,33 +52,56 @@ const (
 
 // LatestVersion fetches the latest version of Mihomo from the Github.
 func latestVersion() (string, error) {
-	versionURL := httpx.GhProxy(mihomoVersionURL)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var content string
-	action := func() {
-		resp, _ := httpx.Request(ctx, versionURL, http.MethodGet, nil, nil)
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		content = strings.TrimSpace(string(body))
-	}
+	var (
+		version  string
+		fetchErr error
+	)
 
 	err := spinner.New().
 		Type(spinner.Dots).
 		Title("Fetching mihomo latest version").
 		Context(ctx).
-		Action(action).
+		Action(func() {
+			resp, err := httpx.Request(ctx, httpx.GhProxy(mihomoVersionURL), http.MethodGet, nil, nil)
+			if err != nil {
+				fetchErr = err
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				fetchErr = fmt.Errorf("unexpected status: %s", resp.Status)
+				return
+			}
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				fetchErr = err
+				return
+			}
+
+			version = strings.TrimSpace(string(body))
+			if version == "" {
+				fetchErr = fmt.Errorf("empty version response")
+			}
+		}).
 		Run()
 
+	if fetchErr != nil {
+		return "", fmt.Errorf("fetch version: %w", fetchErr)
+	}
 	if err != nil {
 		return "", fmt.Errorf("fetch version: %w", err)
 	}
 
-	return content, nil
+	return version, nil
 }
+
 // DownloadURL constructs the download URL for the Mihomo binary based on the latest version
-// and the current system architecture. 
+// and the current system architecture.
 // It returns the download URL as a string or an error if it fails to fetch the latest version.
 func (m Mihomo) DownloadURL() (string, error) {
 	latestVersion, err := latestVersion()

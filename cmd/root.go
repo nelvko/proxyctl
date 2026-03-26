@@ -4,12 +4,12 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
 
-	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/cmd/sub"
 	"github.com/nelvko/proxyctl/config"
 	"github.com/nelvko/proxyctl/kernel"
@@ -32,8 +32,10 @@ var rootCmd = &cobra.Command{
 		if slices.Contains(whiteList, cmd.Name()) {
 			return nil
 		}
-		if err = checkInitialized(); err != nil {
-			return err
+		if err := config.LoadAppConfig(); errors.Is(err, os.ErrNotExist) {
+			if err := setupWizard(); err != nil {
+				return err
+			}
 		}
 		if k, err = kernel.New(); err != nil {
 			return err
@@ -59,36 +61,4 @@ func init() {
 	rootCmd.AddCommand(sub.SubCmd)
 
 	rootCmd.AddGroup(manageGroup)
-}
-
-func checkInitialized() error {
-	err := config.Load()
-	if err == nil {
-		return nil
-	}
-	if !os.IsNotExist(err) {
-		return err
-	}
-
-	var confirm bool
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("🔧 Proxyctl is not initialized").
-				Description("🤔 Would you like to run the setup wizard now?").
-				Affirmative("🚀 Yes, let's go!").
-				Negative("🚫 No, maybe later").
-				Value(&confirm),
-		),
-	)
-
-	if err := form.Run(); err != nil {
-		return fmt.Errorf("failed to run program: %w", err)
-	}
-	if !confirm {
-		fmt.Println("No problem! You can initialize whenever you're ready by running `proxyctl init`.")
-		os.Exit(0)
-	}
-	return initCmd.RunE(initCmd, []string{})
-
 }

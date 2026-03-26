@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	URL "net/url"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -47,14 +47,14 @@ Supported schemes:
 		if err := checkUniqueName(name); err != nil {
 			return err
 		}
-		profilePath := filepath.Join(profilesDir, name+".yaml")
+		profilePath := filepath.Join(subDir, name+".yaml")
 		dst, err := os.Create(profilePath)
 		if err != nil {
 			return err
 		}
 		defer dst.Close()
 
-		u, err := URL.Parse(url)
+		u, err := neturl.Parse(url)
 		if err != nil {
 			return err
 		}
@@ -75,7 +75,7 @@ Supported schemes:
 		}
 		p := profile{
 			Name: name,
-			Url:  url,
+			URL:  url,
 			File: profilePath,
 		}
 		if err := addProfile(p); err != nil {
@@ -88,7 +88,7 @@ Supported schemes:
 
 func addProfile(p profile) error {
 	var err error
-	if cfg.Use == "" && len(cfg.Items) == 0 {
+	if subCfg.Use == "" && len(subCfg.Profiles) == 0 {
 		defer func() {
 			if err == nil {
 				useFunc(p.Name)
@@ -96,16 +96,15 @@ func addProfile(p profile) error {
 			}
 		}()
 	}
-	cfg.Items = append(cfg.Items, p)
-	err = saveSubConfig()
-	return err
+	subCfg.Profiles = append(subCfg.Profiles, p)
+	return saveSubConfig()
 }
 
 func checkUniqueName(name string) error {
 	if name == "" {
 		return errors.New("can't empty")
 	}
-	ok := slices.ContainsFunc(cfg.Items, func(p profile) bool {
+	ok := slices.ContainsFunc(subCfg.Profiles, func(p profile) bool {
 		return p.Name == name
 	})
 	if ok {
@@ -128,7 +127,9 @@ func init() {
 	addCmd.Flags().StringVarP(&name, "name", "n", name, "Assign a name to the profile")
 	addCmd.Flags().BoolVarP(&use, "use", "u", use, "Use the profile after adding")
 }
+
 var descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
+
 func initialForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(

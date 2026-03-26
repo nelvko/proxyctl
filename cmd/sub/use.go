@@ -41,14 +41,14 @@ func init() {
 }
 
 func useFunc(profileName string) error {
-	i := slices.IndexFunc(cfg.Items, func(p profile) bool {
+	i := slices.IndexFunc(subCfg.Profiles, func(p profile) bool {
 		return p.Name == profileName
 	})
 	if i == -1 {
 		return fmt.Errorf("can't find %s profile", profileName)
 	}
-	useFile := cfg.Items[i].File
-	kernelCfg := config.Get().Kernel.ConfigFile
+	useFile := subCfg.Profiles[i].File
+	kernelCfg := config.AppCfg.Kernel.ConfigFile
 	// if _, err := os.Stat(kernelCfg); os.IsNotExist(err) {
 	// 	if _, err := os.Create(kernelCfg); err != nil {
 	// 		return err
@@ -72,7 +72,7 @@ func useFunc(profileName string) error {
 	if !active {
 		return err
 	}
-	cfg.Use = profileName
+	subCfg.Use = profileName
 	return saveSubConfig()
 
 }

@@ -8,12 +8,12 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-type config struct {
+type AppConfig struct {
 	InitSystem string `mapstructure:"initsystem"`
 
 	Kernel struct {
 		Name       string `mapstructure:"name"`
-		Bin    string `mapstructure:"bin"`
+		Bin        string `mapstructure:"bin"`
 		ConfigDir  string `mapstructure:"configdir"`
 		ConfigFile string `mapstructure:"configfile"`
 	} `mapstructure:"kernel"`
@@ -25,32 +25,35 @@ const (
 
 var (
 	AppConfigFile string
-
-	cfg config
-	v   = viper.New()
+	AppCfg        = &AppConfig{}
+	v             = viper.New()
 )
+
+func LoadAppConfig() error {
+	if err := v.ReadInConfig(); err != nil {
+		return err
+	}
+	if err := v.Unmarshal(AppCfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func SaveAppConfig() error {
+	f, err := os.Create(AppConfigFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	encoder := yaml.NewEncoder(f)
+	defer encoder.Close()
+
+	return encoder.Encode(AppCfg)
+}
 
 func init() {
 	cfgDir, _ := os.UserConfigDir()
 	AppConfigFile = filepath.Join(cfgDir, AppName, "config.yaml")
 	v.SetConfigFile(AppConfigFile)
-}
-
-func Load() error {
-	if err := v.ReadInConfig(); err != nil {
-		return err
-	}
-	return v.Unmarshal(&cfg)
-}
-
-func Get() *config {
-	return &cfg
-}
-
-func Save() error {
-	data, err := yaml.Marshal(&cfg)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(AppConfigFile, data, 0644)
 }

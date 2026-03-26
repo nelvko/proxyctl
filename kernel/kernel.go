@@ -17,7 +17,7 @@ type Manager interface {
 }
 
 func New(args ...string) (Kernel, error) {
-	kernelName := config.Get().Kernel.Name
+	kernelName := config.AppCfg.Kernel.Name
 	if len(args) > 0 {
 		kernelName = string(args[0])
 	}

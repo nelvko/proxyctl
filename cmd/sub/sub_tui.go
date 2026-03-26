@@ -28,12 +28,13 @@ const (
 type item profile
 
 func (i item) Title() string       { return i.Name }
-func (i item) Description() string { return i.Url }
+func (i item) Description() string { return i.URL }
 func (i item) FilterValue() string { return i.Name }
 
-func listItemsFromProfiles(items []profile) []list.Item {
-	listItems := make([]list.Item, 0, len(items))
-	for _, p := range items {
+func listItemsFromProfiles() []list.Item {
+	profiles := subCfg.Profiles
+	listItems := make([]list.Item, 0, len(profiles))
+	for _, p := range profiles {
 		listItems = append(listItems, item(p))
 	}
 	return listItems
@@ -135,7 +136,7 @@ type model struct {
 
 func initialModel() model {
 	m := model{
-		list: list.New(listItemsFromProfiles(cfg.Items), list.NewDefaultDelegate(), 0, 0),
+		list: list.New(listItemsFromProfiles(), list.NewDefaultDelegate(), 0, 0),
 	}
 	m.list.Styles.TitleBar = m.list.Styles.TitleBar.PaddingLeft(3)
 	m.list.SetSpinner(spinner.Dot)
@@ -153,7 +154,7 @@ func initialModel() model {
 	}
 	m.list.AdditionalFullHelpKeys = m.list.AdditionalShortHelpKeys
 
-	m.list.Title = "use: " + cfg.Use
+	m.list.Title = "use: " + subCfg.Use
 
 	m.list.SetStatusBarItemName("profile", "profiles")
 	m.list.StatusMessageLifetime = statusMessageLifetime
@@ -193,7 +194,7 @@ type editorFinishedMsg struct {
 }
 type useFinishedMsg struct{ err error }
 type addFinishedMsg struct {
-	err     error
+	err error
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -221,22 +222,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleList(msg tea.Msg) tea.Cmd {
 	var cmds []tea.Cmd
-	var selectedItem item
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if filterState := m.list.FilterState(); filterState == list.Filtering {
 			break
 		}
-		if len(m.list.Items()) == 0 && key.Matches(msg, keys.Delete, keys.Edit, keys.Modify, keys.Use) {
+		selectedItem, ok := m.list.SelectedItem().(item)
+		if !ok && len(m.list.Items()) == 0 && key.Matches(msg, keys.Delete, keys.Edit, keys.Modify, keys.Use) {
 			return m.errorMessage("No profiles available. Please add a profile first.")
 		}
-		selectedItem = m.list.SelectedItem().(item)
 		switch {
 		case key.Matches(msg, keys.Add, keys.Modify):
 			if key.Matches(msg, keys.Modify) {
 				m.formAction = formActionModify
 				name = selectedItem.Name
-				url = selectedItem.Url
+				url = selectedItem.URL
 			} else {
 				m.formAction = formActionAdd
 			}
@@ -294,16 +294,16 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		if msg.err != nil {
 			return m.errorMessage(msg.err.Error())
 		}
-		m.list.Title = "use: " + cfg.Use
+		m.list.Title = "use: " + subCfg.Use
 		return m.successMessage("used")
 	case addFinishedMsg:
 		m.list.StopSpinner()
 		if msg.err != nil {
 			return m.errorMessage(strings.TrimRight(msg.err.Error(), "\n"))
 		}
-		cmds = append(cmds, m.list.SetItems(listItemsFromProfiles(cfg.Items)))
-		m.list.Select(len(cfg.Items) - 1)
-		m.list.Title = "use: " + cfg.Use
+		cmds = append(cmds, m.list.SetItems(listItemsFromProfiles()))
+		m.list.Select(len(subCfg.Profiles) - 1)
+		m.list.Title = "use: " + subCfg.Use
 		cmds = append(cmds, m.successMessage("Added "))
 		return tea.Batch(cmds...)
 	}

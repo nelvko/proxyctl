@@ -4,14 +4,8 @@ Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 package sub
 
 import (
-	"errors"
-	"os"
-	"path/filepath"
-
-	"github.com/nelvko/proxyctl/config"
 	"github.com/nelvko/proxyctl/kernel"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // SubCmd represents the sub command
@@ -29,13 +23,10 @@ var SubCmd = &cobra.Command{
 			return err
 		}
 
-		if err = v.ReadInConfig(); err != nil {
+		if err = loadSubConfig(); err != nil {
 			return err
 		}
 
-		if err = v.Unmarshal(&cfg); err != nil {
-			return err
-		}
 		if k, err = kernel.New(); err != nil {
 			return err
 		}
@@ -44,40 +35,5 @@ var SubCmd = &cobra.Command{
 }
 
 var (
-	v   = viper.New()
-	cfg Config
-	k   kernel.Kernel
-
-	profilesDir    string
-	profilesConfig string
+	k kernel.Kernel
 )
-
-type profile struct {
-	Name string `mapstructure:"name"`
-	Url  string `mapstructure:"url"`
-	File string `mapstructure:"file"`
-}
-
-type Config struct {
-	Use   string    `mapstructure:"use"`
-	Items []profile `mapstructure:"items"`
-}
-
-func saveSubConfig() error {
-	v.Set("use", cfg.Use)
-	v.Set("items", cfg.Items)
-	return v.WriteConfig()
-}
-
-func init() {
-	appConfigDir := filepath.Dir(config.AppConfigFile)
-	profilesDir = filepath.Join(appConfigDir, "profiles")
-	profilesConfig = filepath.Join(appConfigDir, "profiles.yaml")
-
-	if _, err := os.Stat(profilesConfig); errors.Is(err, os.ErrNotExist) {
-		os.MkdirAll(profilesDir, 0755)
-		os.Create(profilesConfig)
-	}
-
-	v.SetConfigFile(profilesConfig)
-}

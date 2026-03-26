@@ -13,12 +13,12 @@ type Clash struct {
 }
 
 func (m Clash) TestConfig(configFile string) (bool, error) {
-	cfg := config.Get()
+	kernelCfg := config.AppCfg.Kernel
 	cmd := exec.Command(
-		cfg.Kernel.Bin,
+		kernelCfg.Bin,
 		"-t",
 		"-f", configFile,
-		"-d", cfg.Kernel.ConfigDir,
+		"-d", kernelCfg.ConfigDir,
 	)
 	b, err := cmd.CombinedOutput()
 	if err != nil {

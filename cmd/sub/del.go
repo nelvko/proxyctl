@@ -37,20 +37,20 @@ func init() {
 	SubCmd.AddCommand(delCmd)
 }
 func delProfile(name string) error {
-	i := slices.IndexFunc(cfg.Items, func(p profile) bool {
+	i := slices.IndexFunc(subCfg.Profiles, func(p profile) bool {
 		return p.Name == name
 	})
 	if i == -1 {
 		return fmt.Errorf("can't find %s profile", name)
 	}
-	tgt := cfg.Items[i]
-	if cfg.Use == tgt.Name && !force {
-		return fmt.Errorf("%s is currently in use", cfg.Use)
+	tgt := subCfg.Profiles[i]
+	if subCfg.Use == tgt.Name && !force {
+		return fmt.Errorf("%s is currently in use", subCfg.Use)
 	}
 
 	if err := os.Remove(tgt.File); err != nil {
 		return err
 	}
-	v.Set("items", slices.Delete(cfg.Items, i, i+1))
-	return v.WriteConfig()
+	subCfg.Profiles = slices.Delete(subCfg.Profiles, i, i+1)
+	return saveSubConfig()
 }

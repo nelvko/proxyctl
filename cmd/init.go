@@ -30,7 +30,7 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !force {
 			if _, err := os.Stat(config.AppConfigFile); err == nil {
-				return errors.New("Configuration already exists. Use --force to overwrite.")
+				return errors.New("configuration already exists. Use --force to overwrite")
 			}
 		}
 
@@ -49,7 +49,7 @@ var initCmd = &cobra.Command{
 			}
 			defer f.Close()
 		}
-		if err := config.Save(); err != nil {
+		if err := config.SaveAppConfig(); err != nil {
 			return fmt.Errorf("Failed to write configuration file: %w", err)
 		}
 		log.Ok("Successfully initialized", "✅")
@@ -107,7 +107,7 @@ func CanWriteTo(path string) error {
 	return nil
 }
 func checkExists() string {
-	_, err := os.Stat(cfg.Kernel.Bin)
+	_, err := os.Stat(config.AppCfg.Kernel.Bin)
 	if err == nil {
 		s := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 		return s.Render("already exists files: %s, it will overwrite old")
@@ -116,26 +116,6 @@ func checkExists() string {
 
 }
 
-func defaultBinPath() string {
-	// if os.Geteuid() == 0 {
-	// 	return filepath.Join("/usr/local/bin", cfg.Kernel.Name)
-	// } else {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "bin", cfg.Kernel.Name)
-	// }
-}
-
-func defaultConfigDir() string {
-	// if os.Geteuid() == 0 {
-	// return filepath.Join("/etc", cfg.Kernel.Name)
-	// } else {
-	cfgDir, _ := os.UserConfigDir()
-	return filepath.Join(cfgDir, cfg.Kernel.Name)
-	// }
-}
-
-var cfg = config.Get()
-
 const (
 	mihomo  = "mihomo"
 	clash   = "clash"
@@ -143,7 +123,6 @@ const (
 )
 
 func InitSteps() error {
-	var svc unisvc.Service
 	// var installedKernel = []kernel.Kernel{}
 	// for _, v := range kernel.AvailableKernel {
 	// 	svc, _ = kernel.New(v)
@@ -154,37 +133,40 @@ func InitSteps() error {
 	// if len(installedKernel) > 0 {
 	// 	selectExistService(installedKernel)
 	// }
-
+	var (
+		appCfg    = config.AppCfg
+		kernelCfg = &appCfg.Kernel
+	)
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Select proxy kernel").
-				DescriptionFunc(func() string {
-					return fmt.Sprintf("download and install the %s kernel", cfg.Kernel.Name)
-				}, &cfg.Kernel.Name).
+				// DescriptionFunc(func() string {
+				// 	return fmt.Sprintf("download and install the %s kernel", kernelName)
+				// }, &kernelName).
 				Options(
 					huh.NewOption(mihomo, mihomo),
 					huh.NewOption(clash, clash),
 					huh.NewOption(singbox, singbox),
 				).
-				Value(&cfg.Kernel.Name),
+				Value(&kernelCfg.Name),
 
 			huh.NewInput().
-				Title("proxy kernel's bin path").
-				PlaceholderFunc(defaultBinPath, &cfg.Kernel.Name).
-				SuggestionsFunc(func() []string {
-					return []string{defaultBinPath()}
-				}, &cfg.Kernel.Name).
-				Value(&cfg.Kernel.Bin).
+				Title("proxy kernel's binary").
+				// PlaceholderFunc(defaultBinPath, &kernelName).
+				// SuggestionsFunc(func() []string {
+				// 	return []string{defaultBinPath()}
+				// }, &config.AppCfg.Kernel.Name).
+				Value(&kernelCfg.Bin).
 				Validate(CanWriteTo),
 
 			huh.NewInput().
-				Title("proxy kernel's config dir").
-				PlaceholderFunc(defaultConfigDir, &cfg.Kernel.Name).
-				SuggestionsFunc(func() []string {
-					return []string{defaultConfigDir()}
-				}, &cfg.Kernel.ConfigDir).
-				Value(&cfg.Kernel.ConfigDir).
+				Title("configuration directory").
+				// PlaceholderFunc(defaultConfigDir, &config.AppCfg.Kernel.Name).
+				// SuggestionsFunc(func() []string {
+				// 	return []string{defaultConfigDir()}
+				// }, &config.AppCfg.Kernel.ConfigDir).
+				Value(&kernelCfg.ConfigDir).
 				Validate(CanWriteTo),
 		),
 	)
@@ -192,17 +174,17 @@ func InitSteps() error {
 	if err := form.Run(); err != nil {
 		return err
 	}
-	cfg.Kernel.ConfigFile = filepath.Join(cfg.Kernel.ConfigDir, "config.yaml")
-	if err := os.MkdirAll(cfg.Kernel.ConfigDir, 0755); err != nil {
+	kernelCfg.ConfigFile = filepath.Join(kernelCfg.ConfigDir, "config.yaml")
+	if err := os.MkdirAll(kernelCfg.ConfigDir, 0755); err != nil {
 		return err
 	}
-	if _, err := os.Create(cfg.Kernel.ConfigFile); err != nil {
+	if _, err := os.Create(kernelCfg.ConfigFile); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.Kernel.Bin), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(kernelCfg.Bin), 0755); err != nil {
 		return err
 	}
-	k, _ = kernel.New(cfg.Kernel.Name)
+	k, _ = kernel.New(kernelCfg.Name)
 	url, err := k.DownloadURL()
 	if err != nil {
 		return err
@@ -231,19 +213,44 @@ func InitSteps() error {
 	// 	return fmt.Errorf("failed to seek file: %w", err)
 	// }
 
-	if err := httpx.Ungzip(f, cfg.Kernel.Bin); err != nil {
+	if err := httpx.Ungzip(f, kernelCfg.Bin); err != nil {
 		return fmt.Errorf("failed to extract file: %w", err)
 	}
-	if err := os.Chmod(cfg.Kernel.Bin, 0755); err != nil {
+	if err := os.Chmod(kernelCfg.Bin, 0755); err != nil {
 		return err
 	}
 
 	spec := unisvc.Spec{
-		Command: cfg.Kernel.Bin,
-		Args:    []string{"-d", cfg.Kernel.ConfigDir, "-f", cfg.Kernel.ConfigFile},
+		Command: kernelCfg.Bin,
+		Args:    []string{"-d", kernelCfg.ConfigDir, "-f", kernelCfg.ConfigFile},
 	}
-	if err := svc.Install(&spec); err != nil {
+	k, _ := kernel.New(kernelCfg.Name)
+	if err := k.Install(&spec); err != nil {
 		return err
 	}
 	return nil
+}
+
+func setupWizard() error {
+	var confirm bool
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("🔧 Proxyctl is not initialized").
+				Description("🤔 Would you like to run the setup wizard now?").
+				Affirmative("🚀 Yes, let's go!").
+				Negative("🚫 No, maybe later").
+				Value(&confirm),
+		),
+	)
+
+	if err := form.Run(); err != nil {
+		return fmt.Errorf("failed to run program: %w", err)
+	}
+	if !confirm {
+		fmt.Println("No problem! You can initialize whenever you're ready by running `proxyctl init`.")
+		os.Exit(0)
+	}
+	return initCmd.RunE(initCmd, []string{})
+
 }
