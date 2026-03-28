@@ -37,12 +37,9 @@ var initCmd = &cobra.Command{
 		if err := InitSteps(); err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(config.AppConfigFile), 0755); err != nil {
-			return err
-		}
 
 		if _, err := os.Stat(config.AppConfigFile); os.IsNotExist(err) {
-			os.MkdirAll(filepath.Dir(config.AppConfigFile), os.ModePerm)
+			os.MkdirAll(config.AppConfigPath, os.ModeDir)
 			f, err := os.Create(config.AppConfigFile)
 			if err != nil {
 				return err
@@ -60,7 +57,7 @@ var initCmd = &cobra.Command{
 var force bool
 
 func init() {
-	rootCmd.AddCommand(initCmd)
+	RootCmd.AddCommand(initCmd)
 	initCmd.Flags().BoolVarP(&force, "force", "f", false, "Force initialization even if config file exists")
 }
 

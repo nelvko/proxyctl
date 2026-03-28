@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -36,5 +33,5 @@ func unsetProxy() {
 }
 
 func init() {
-	rootCmd.AddCommand(offCmd)
+	RootCmd.AddCommand(offCmd)
 }

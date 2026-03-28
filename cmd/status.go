@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -21,5 +18,5 @@ var statusCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(statusCmd)
+	RootCmd.AddCommand(statusCmd)
 }

@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -67,5 +64,5 @@ func ExecShell() error {
 }
 
 func init() {
-	rootCmd.AddCommand(onCmd)
+	RootCmd.AddCommand(onCmd)
 }

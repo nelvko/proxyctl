@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -10,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nelvko/proxyctl/cmd/sub"
 	"github.com/nelvko/proxyctl/config"
 	"github.com/nelvko/proxyctl/kernel"
 	"github.com/spf13/cobra"
@@ -18,8 +14,8 @@ import (
 
 var k kernel.Kernel
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
+// RootCmd represents the base command when called without any subcommands
+var RootCmd = &cobra.Command{
 	Use:           "proxyctl",
 	Short:         "Go proxy elegantly",
 	Long:          ``,
@@ -36,6 +32,8 @@ var rootCmd = &cobra.Command{
 			if err := setupWizard(); err != nil {
 				return err
 			}
+		} else if err != nil {
+			return fmt.Errorf("load app config: %w", err)
 		}
 		if k, err = kernel.New(); err != nil {
 			return err
@@ -49,16 +47,14 @@ var manageGroup = &cobra.Group{ID: "manage", Title: "Management Commands"}
 var skipInit map[string]string
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
+// This is called by main.main(). It only needs to happen once to the RootCmd.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := RootCmd.Execute(); err != nil {
 		msg := strings.TrimRight(err.Error(), "\n")
 		fmt.Fprintln(os.Stderr, "Error: "+msg)
 	}
 }
 
 func init() {
-	rootCmd.AddCommand(sub.SubCmd)
-
-	rootCmd.AddGroup(manageGroup)
+	RootCmd.AddGroup(manageGroup)
 }

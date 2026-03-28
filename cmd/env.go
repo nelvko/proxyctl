@@ -1,7 +1,3 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-
-*/
 package cmd
 
 import (
@@ -26,7 +22,7 @@ to quickly create a Cobra application.`,
 }
 
 func init() {
-	rootCmd.AddCommand(envCmd)
+	RootCmd.AddCommand(envCmd)
 
 	// Here you will define your flags and configuration settings.
 
