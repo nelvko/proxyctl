@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/nelvko/proxyctl/config"
 	"github.com/spf13/viper"
@@ -26,6 +27,22 @@ type profile struct {
 	Name string `mapstructure:"name"`
 	URL  string `mapstructure:"url"`
 	File string `mapstructure:"file"`
+
+	Update updateConfig `mapstructure:"update"`
+}
+type updateConfig struct {
+	Enable bool `mapstructure:"enable"`
+
+	Headers map[string]string `mapstructure:"headers"`
+
+	Timeout  time.Duration `mapstructure:"timeout"`
+	Interval time.Duration `mapstructure:"interval"`
+
+	Cron      string `mapstructure:"cron"`
+	UserAgent string `mapstructure:"UserAgent"`
+
+	UseProxy bool
+	SkipCert bool
 }
 
 func loadSubConfig() error {
@@ -52,12 +69,11 @@ func saveSubConfig() error {
 }
 
 func init() {
-	appConfigDir := filepath.Dir(config.AppConfigFile)
-	subDir = filepath.Join(appConfigDir, "profiles")
-	subConfigFile = filepath.Join(appConfigDir, "profiles.yaml")
+	subDir = filepath.Join(config.AppConfigDir, "profiles")
+	subConfigFile = filepath.Join(config.AppConfigDir, "profiles.yaml")
 	if _, err := os.Stat(config.AppConfigFile); err == nil {
 		if _, err := os.Stat(subConfigFile); errors.Is(err, os.ErrNotExist) {
-			os.MkdirAll(subDir, 0755)
+			os.MkdirAll(subDir, 0o755)
 			os.WriteFile(subConfigFile, nil, 0o666)
 		}
 	}

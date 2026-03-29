@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -39,7 +36,7 @@ var initCmd = &cobra.Command{
 		}
 
 		if _, err := os.Stat(config.AppConfigFile); os.IsNotExist(err) {
-			os.MkdirAll(config.AppConfigPath, os.ModeDir)
+			os.MkdirAll(config.AppConfigDir, 0o755)
 			f, err := os.Create(config.AppConfigFile)
 			if err != nil {
 				return err

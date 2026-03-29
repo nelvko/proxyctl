@@ -25,6 +25,7 @@ const (
 
 var (
 	AppConfigFile string
+	AppConfigDir  string
 	AppCfg        = &AppConfig{}
 	v             = viper.New()
 )
@@ -54,6 +55,7 @@ func SaveAppConfig() error {
 
 func init() {
 	cfgDir, _ := os.UserConfigDir()
-	AppConfigFile = filepath.Join(cfgDir, AppName, "config.yaml")
+	AppConfigDir = filepath.Join(cfgDir, AppName)
+	AppConfigFile = filepath.Join(AppConfigDir, "config.yaml")
 	v.SetConfigFile(AppConfigFile)
 }

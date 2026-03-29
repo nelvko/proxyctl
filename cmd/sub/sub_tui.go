@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -72,14 +70,14 @@ type formAction int
 
 const (
 	formActionAdd formAction = iota
-	formActionModify
+	formActionSet
 )
 
 type keyMap struct {
 	More      key.Binding
 	EscCancel key.Binding
 	Add       key.Binding
-	Modify    key.Binding
+	Set       key.Binding
 	Edit      key.Binding
 	Delete    key.Binding
 	Use       key.Binding
@@ -98,9 +96,9 @@ var keys = keyMap{
 		key.WithKeys("a"),
 		key.WithHelp("a", "add"),
 	),
-	Modify: key.NewBinding(
-		key.WithKeys("m"),
-		key.WithHelp("m", "modify"),
+	Set: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "set"),
 	),
 	Edit: key.NewBinding(
 		key.WithKeys("e"),
@@ -147,7 +145,7 @@ func initialModel() model {
 		return []key.Binding{
 			keys.Edit,
 			keys.Add,
-			keys.Modify,
+			keys.Set,
 			keys.Delete,
 			keys.Use,
 		}
@@ -183,8 +181,8 @@ func (m *model) successMessage(message string) tea.Cmd {
 func (m *model) cancelForm() tea.Cmd {
 	m.formFocused = false
 	m.form = nil
-	name = ""
-	url = ""
+	option.Name = ""
+	option.URL = ""
 	return m.successMessage("Canceled")
 }
 
@@ -228,15 +226,15 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 			break
 		}
 		selectedItem, ok := m.list.SelectedItem().(item)
-		if !ok && len(m.list.Items()) == 0 && key.Matches(msg, keys.Delete, keys.Edit, keys.Modify, keys.Use) {
+		if (!ok || len(m.list.Items()) == 0) && key.Matches(msg, keys.Delete, keys.Edit, keys.Set, keys.Use) {
 			return m.errorMessage("No profiles available. Please add a profile first.")
 		}
 		switch {
-		case key.Matches(msg, keys.Add, keys.Modify):
-			if key.Matches(msg, keys.Modify) {
-				m.formAction = formActionModify
-				name = selectedItem.Name
-				url = selectedItem.URL
+		case key.Matches(msg, keys.Add, keys.Set):
+			if key.Matches(msg, keys.Set) {
+				m.formAction = formActionSet
+				option.Name = selectedItem.Name
+				option.URL = selectedItem.URL
 			} else {
 				m.formAction = formActionAdd
 			}
@@ -257,7 +255,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 				m.lastPress.d = time.Now()
 				return nil
 			}
-			if err := delProfile(selectedItem.Name); err != nil {
+			if err := deleteProfile(selectedItem.Name); err != nil {
 				return m.errorMessage(err.Error())
 			}
 			m.list.RemoveItem(m.list.GlobalIndex())
@@ -289,6 +287,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		if err := k.TestConfig(msg.item.File); err != nil {
 			return m.errorMessage(fmt.Errorf("%w\nplease check profile %s and correct any errors", err, msg.item.Name).Error())
 		}
+		return m.successMessage("Edited")
 	case useFinishedMsg:
 		m.list.StopSpinner()
 		if msg.err != nil {
@@ -327,26 +326,6 @@ func (m *model) handleForm(msg tea.Msg) tea.Cmd {
 	m.form = newForm.(*huh.Form)
 	cmds = append(cmds, cmd)
 	return tea.Batch(cmds...)
-}
-
-func getEditorCommand(file string) (*exec.Cmd, error) {
-	if envEd := os.Getenv("EDITOR"); envEd != "" {
-		parts := strings.Fields(envEd)
-		if len(parts) > 0 {
-			cmdName := parts[0]
-			if p, err := exec.LookPath(cmdName); err == nil {
-				args := append(parts[1:], file)
-				return exec.Command(p, args...), nil
-			}
-		}
-	}
-	priorityList := []string{"nvim", "vim", "vi", "nano", "code", "notepad"}
-	for _, name := range priorityList {
-		if p, err := exec.LookPath(name); err == nil {
-			return exec.Command(p, file), nil
-		}
-	}
-	return nil, errors.New("no supported editor found. please set the EDITOR environment variable")
 }
 
 func (m model) View() tea.View {

@@ -65,15 +65,15 @@ func latestVersion() (string, error) {
 		Title("Fetching mihomo latest version").
 		Context(ctx).
 		Action(func() {
-			resp, err := httpx.Request(ctx, httpx.GhProxy(mihomoVersionURL), http.MethodGet, nil, nil)
+			resp, err := http.NewRequestWithContext(ctx, http.MethodGet, httpx.GhProxy(mihomoVersionURL), nil)
 			if err != nil {
 				fetchErr = err
 				return
 			}
 			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK {
-				fetchErr = fmt.Errorf("unexpected status: %s", resp.Status)
+			if resp.Response.StatusCode != http.StatusOK {
+				fetchErr = fmt.Errorf("unexpected status: %s", resp.Response.Status)
 				return
 			}
 

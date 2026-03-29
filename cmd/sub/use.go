@@ -1,6 +1,3 @@
-/*
-Copyright © 2026 nelvko
-*/
 package sub
 
 import (
@@ -15,29 +12,26 @@ import (
 
 // useCmd represents the use command
 var useCmd = &cobra.Command{
-	Use:   "use [name]",
-	Short: "Use the specified profile",
-	Long:  ``,
-	Args:  cobra.MaximumNArgs(1),
+	Use:   "use <name>",
+	Short: "Use a subscription profile",
+	Long:  `Use the specified subscription profile for the proxy kernel.`,
+	Args:  validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) != 1 {
-			if err := tui(); err != nil {
-				return err
-			}
-		} else {
-			name = args[0]
+		if interactive {
+			return tui()
 		}
-		if err := useFunc(name); err != nil {
+		profileName := args[0]
+		if err := useFunc(profileName); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("使用订阅：%s", name))
+		log.Ok(fmt.Sprintf("profile %q used successfully", profileName))
 		return nil
 
 	},
 }
 
 func init() {
-	SubCmd.AddCommand(useCmd)
+	subCmd.AddCommand(useCmd)
 }
 
 func useFunc(profileName string) error {
@@ -49,11 +43,9 @@ func useFunc(profileName string) error {
 	}
 	useFile := subCfg.Profiles[i].File
 	kernelCfg := config.AppCfg.Kernel.ConfigFile
-	// if _, err := os.Stat(kernelCfg); os.IsNotExist(err) {
-	// 	if _, err := os.Create(kernelCfg); err != nil {
-	// 		return err
-	// 	}
-	// }
+	if err := k.TestConfig(useFile); err != nil {
+		return err
+	}
 
 	bytes, err := os.ReadFile(useFile)
 	if err != nil {

@@ -1,25 +1,26 @@
-/*
-Copyright © 2026 nelvko
-*/
 package sub
 
 import (
-
 	"github.com/spf13/cobra"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update Subscription profile",
+	Short: "Update subscription profiles",
 	Long:  ``,
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if interactive {
+			return tui()
+		}
+		// todo
 		return nil
 	},
 }
 
 func init() {
-	SubCmd.AddCommand(updateCmd)
+	subCmd.AddCommand(updateCmd)
 
 	// Here you will define your flags and configuration settings.
 

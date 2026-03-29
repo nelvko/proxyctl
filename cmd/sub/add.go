@@ -1,6 +1,3 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-*/
 package sub
 
 import (
@@ -8,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	neturl "net/url"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"charm.land/huh/v2"
@@ -23,109 +18,127 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func validArgWithInteractive(cmd *cobra.Command, args []string) error {
+	if interactive {
+		return nil
+	}
+	return cobra.ExactArgs(1)(cmd, args)
+}
+
 // addCmd represents the add command
 var addCmd = &cobra.Command{
-	Use:   "add [url]",
-	Short: "Add a Subscription profile",
-	Long: `Import a configuration profile from a remote URL or a local file path.
-Supported schemes:
-  - Remote: http://, https://
-  - Local:  file://`,
-	SuggestFor: []string{"install", "import", "put"},
-	Args:       cobra.MaximumNArgs(1),
+	Use:   "add <url>",
+	Short: "Add a subscription profile from a source URL",
+	Long: `Add a subscription profile from an HTTP, HTTPS, or file URL.
+
+The profile is validated before it is saved. If this is the first
+profile, it becomes active automatically.`,
+	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) != 1 {
+		if interactive {
 			if err := tuiAdd(); err != nil {
 				return err
 			}
 		} else {
-			url = args[0]
+			option.URL = args[0]
 		}
-		if name == "" {
-			name = strconv.FormatInt(time.Now().Unix(), 10)
-		}
-		if err := checkUniqueName(name); err != nil {
-			return err
-		}
-		profilePath := filepath.Join(subDir, name+".yaml")
-		dst, err := os.Create(profilePath)
-		if err != nil {
-			return err
-		}
-		defer dst.Close()
 
-		u, err := neturl.Parse(url)
+		u, err := url.Parse(option.URL)
 		if err != nil {
 			return err
 		}
-		switch strings.ToLower(u.Scheme) {
+
+		if option.Name == "" {
+			option.Name = fmt.Sprintf("%d", time.Now().Unix())
+		}
+		if err := checkUniqueName(option.Name); err != nil {
+			return err
+		}
+		tmpFile, err := os.CreateTemp("", "profile-*")
+		if err != nil {
+			return err
+		}
+		defer tmpFile.Close()
+
+		switch u.Scheme {
 		case "file":
 			src, err := os.Open(u.Path)
 			if err != nil {
-				return fmt.Errorf("failed to open file: %w", err)
-			}
-			defer src.Close()
-			io.Copy(dst, src)
-		default:
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			if err := httpx.Download(ctx, url, dst); err != nil {
 				return err
 			}
+			defer src.Close()
+			if _, err := io.Copy(tmpFile, src); err != nil {
+				return err
+			}
+		case "http", "https":
+			ctx, cancel := context.WithTimeout(context.Background(), option.Update.Timeout)
+			defer cancel()
+			if err := httpx.Download(ctx, u.String(), tmpFile); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return errors.New("download timed out, please try again later or specify a longer timeout")
+				}
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported scheme: %s", u.Scheme)
 		}
-		p := profile{
-			Name: name,
-			URL:  url,
-			File: profilePath,
-		}
-		if err := addProfile(p); err != nil {
+		if err := k.TestConfig(tmpFile.Name()); err != nil {
 			return err
 		}
-		log.Ok("订阅添加成功")
+		option.File = filepath.Join(subDir, option.Name+".yaml")
+		if err := os.Rename(tmpFile.Name(), option.File); err != nil {
+			return err
+		}
+		if err := addProfile(*option); err != nil {
+			return err
+		}
+		log.Ok(fmt.Sprintf("profile %q added successfully", option.Name))
+		if use || (subCfg.Use == "" && len(subCfg.Profiles) == 1) {
+			if err := useFunc(option.Name); err != nil {
+				return err
+			}
+			log.Ok(fmt.Sprintf("profile %q used successfully", option.Name))
+		}
 		return nil
 	},
 }
 
 func addProfile(p profile) error {
-	var err error
-	if subCfg.Use == "" && len(subCfg.Profiles) == 0 {
-		defer func() {
-			if err == nil {
-				useFunc(p.Name)
-				log.Ok("use profile ok")
-			}
-		}()
-	}
 	subCfg.Profiles = append(subCfg.Profiles, p)
-	return saveSubConfig()
+	if err := saveSubConfig(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func checkUniqueName(name string) error {
 	if name == "" {
-		return errors.New("can't empty")
+		return nil
 	}
 	ok := slices.ContainsFunc(subCfg.Profiles, func(p profile) bool {
 		return p.Name == name
 	})
 	if ok {
-		return fmt.Errorf("profile '%s' already exists", name)
+		return fmt.Errorf("profile %q already exists", name)
 	}
 	return nil
 }
 
 var (
-	// flags
-	name string
-	use  bool
-
-	// args
-	url string
+	use    bool
+	option = &profile{
+		Update: updateConfig{
+			Timeout: 10 * time.Second,
+		},
+	}
 )
 
 func init() {
-	SubCmd.AddCommand(addCmd)
-	addCmd.Flags().StringVarP(&name, "name", "n", name, "Assign a name to the profile")
-	addCmd.Flags().BoolVarP(&use, "use", "u", use, "Use the profile after adding")
+	subCmd.AddCommand(addCmd)
+	addCmd.Flags().StringVarP(&option.Name, "name", "n", option.Name, "Profile name; defaults to the current Unix timestamp")
+	addCmd.Flags().BoolVarP(&use, "use", "u", use, "Switch to the new profile after adding it")
+	addCmd.Flags().DurationVarP(&option.Update.Timeout, "timeout", "t", option.Update.Timeout, "HTTP(S) download timeout")
+	// todo updateConfig
 }
 
 var descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
@@ -134,22 +147,35 @@ func initialForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Subscription URL").
-				Description(descStyle.Render("support http, file scheme")).
-				Value(&url).
-				Validate(func(s string) error {
-					if url == "" {
-						return errors.New("can't empty")
-					}
-					return nil
-				}),
+				Title("Source URL").
+				Description(descStyle.Render("Supports http://, https://, and file:// URLs")).
+				Value(&option.URL).
+				Validate(validateSourceURL),
 			huh.NewInput().
-				Title("Subscription Name").
-				Description(descStyle.Render("should be unique")).
+				Title("Profile Name").
+				Description(descStyle.Render("Optional; defaults to the current Unix timestamp")).
 				Validate(checkUniqueName).
-				Value(&name),
+				Value(&option.Name),
 		),
 	)
+}
+
+func validateSourceURL(raw string) error {
+	if raw == "" {
+		return errors.New("source URL cannot be empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid source URL: %w", err)
+	}
+	switch u.Scheme {
+	case "http", "https", "file":
+		return nil
+	case "":
+		return errors.New("source URL must include http://, https://, or file://")
+	default:
+		return fmt.Errorf("unsupported URL scheme %q", u.Scheme)
+	}
 }
 
 func tuiAdd() error {
