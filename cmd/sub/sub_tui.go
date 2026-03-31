@@ -338,7 +338,12 @@ func (m model) View() tea.View {
 		if bodyHeight < 0 {
 			bodyHeight = 0
 		}
-		if lipgloss.Height(m.err.Error()) > 1 {
+		// messageWidth = total width - titlebar horizontal padding
+		// - title width
+		// - title horizontal padding  https://github.com/charmbracelet/bubbles/blob/f1daacfa0cfee07e31a12498078426d275aa5286/list/style.go#L55
+		// - message left margin       https://github.com/charmbracelet/bubbles/blob/f1daacfa0cfee07e31a12498078426d275aa5286/list/list.go#L1113
+		messageWidth := m.width - 2*m.list.Styles.TitleBar.GetPaddingLeft() - lipgloss.Width(m.list.Title) - 2 - 2
+		if lipgloss.Width(m.err.Error()) > messageWidth {
 			header = m.appErrorBoundaryView(lipgloss.Center, "WARNING")
 			body = lipgloss.NewStyle().Width(m.width).Height(bodyHeight).AlignVertical(lipgloss.Center).Render(m.err.Error())
 		} else {
