@@ -14,24 +14,25 @@ import (
 	"charm.land/huh/v2/spinner"
 	"golang.org/x/sys/cpu"
 
-	"github.com/nelvko/proxyctl/config"
-	"github.com/nelvko/proxyctl/httpx"
+	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/httpx"
 	"github.com/nelvko/unisvc"
 )
 
 type Mihomo struct {
 	unisvc.Service
+
+	cfg config.KernelConfig
 }
 
 // TestConfig tests the configuration file for Mihomo by executing the Mihomo binary.
 // It captures the output and returns an error if the test fails.
 func (m Mihomo) TestConfig(configFile string) error {
-	kernelCfg := config.AppCfg.Kernel
 	cmd := exec.Command(
-		kernelCfg.Bin,
+		m.cfg.Bin,
 		"-t",
 		"-f", configFile,
-		"-d", kernelCfg.ConfigDir,
+		"-d", m.cfg.ConfigDir,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -65,15 +66,20 @@ func latestVersion() (string, error) {
 		Title("Fetching mihomo latest version").
 		Context(ctx).
 		Action(func() {
-			resp, err := http.NewRequestWithContext(ctx, http.MethodGet, httpx.GhProxy(mihomoVersionURL), nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpx.GhProxy(mihomoVersionURL), nil)
+			if err != nil {
+				fetchErr = err
+				return
+			}
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				fetchErr = err
 				return
 			}
 			defer resp.Body.Close()
 
-			if resp.Response.StatusCode != http.StatusOK {
-				fetchErr = fmt.Errorf("unexpected status: %s", resp.Response.Status)
+			if resp.StatusCode != http.StatusOK {
+				fetchErr = fmt.Errorf("unexpected status: %s", resp.Status)
 				return
 			}
 

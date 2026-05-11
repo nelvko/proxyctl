@@ -10,7 +10,7 @@ var statusCmd = &cobra.Command{
 	Short: "Show runtime status of proxy kernel",
 	Long:  ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := k.Status(); err != nil {
+		if err := AppCtx.Kernel.Status(); err != nil {
 			return err
 		}
 		return nil

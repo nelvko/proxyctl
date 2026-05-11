@@ -1,4 +1,4 @@
-package sub
+package profile
 
 import (
 	"errors"
@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/nelvko/proxyctl/internal/app"
 )
 
 const (
@@ -30,7 +31,7 @@ func (i item) Description() string { return i.URL }
 func (i item) FilterValue() string { return i.Name }
 
 func listItemsFromProfiles() []list.Item {
-	profiles := subCfg.Profiles
+	profiles := app.AppCtx.SubConfig.Profiles
 	listItems := make([]list.Item, 0, len(profiles))
 	for _, p := range profiles {
 		listItems = append(listItems, item(p))
@@ -152,7 +153,7 @@ func initialModel() model {
 	}
 	m.list.AdditionalFullHelpKeys = m.list.AdditionalShortHelpKeys
 
-	m.list.Title = "use: " + subCfg.Use
+	m.list.Title = "use: " + app.AppCtx.SubConfig.Use
 
 	m.list.SetStatusBarItemName("profile", "profiles")
 	m.list.StatusMessageLifetime = statusMessageLifetime
@@ -181,8 +182,8 @@ func (m *model) successMessage(message string) tea.Cmd {
 func (m *model) cancelForm() tea.Cmd {
 	m.formFocused = false
 	m.form = nil
-	option.Name = ""
-	option.URL = ""
+	// option.Name = ""
+	// option.URL = ""
 	return m.successMessage("Canceled")
 }
 
@@ -233,17 +234,17 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, keys.Add, keys.Set):
 			if key.Matches(msg, keys.Set) {
 				m.formAction = formActionSet
-				option.Name = selectedItem.Name
-				option.URL = selectedItem.URL
+				// option.Name = selectedItem.Name
+				// option.URL = selectedItem.URL
 			} else {
 				m.formAction = formActionAdd
 			}
 			m.formFocused = true
-			form := initialForm().WithShowHelp(false)
-			m.form = form
-			return form.Init()
+			// form := initialForm().WithShowHelp(false)
+			// m.form = form
+			// return form.Init()
 		case key.Matches(msg, keys.Edit):
-			cmd, err := getEditorCommand(selectedItem.File)
+			cmd, err := getEditorCommand(selectedItem.File, "")
 			if err != nil {
 				return m.errorMessage(err.Error())
 			}
@@ -255,7 +256,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 				m.lastPress.d = time.Now()
 				return nil
 			}
-			if err := deleteProfile(selectedItem.Name); err != nil {
+			if err := Delete(selectedItem.Name, false); err != nil {
 				return m.errorMessage(err.Error())
 			}
 			m.list.RemoveItem(m.list.GlobalIndex())
@@ -270,7 +271,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 				m.pendingMessage("wait a moment..."),
 				m.list.StartSpinner(),
 				func() tea.Msg {
-					if err := useFunc(selectedItem.Name); err != nil {
+					if err := Use(selectedItem.Name); err != nil {
 						return useFinishedMsg{err}
 					}
 					return useFinishedMsg{}
@@ -284,7 +285,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		if msg.err != nil {
 			return m.errorMessage(msg.err.Error())
 		}
-		if err := k.TestConfig(msg.item.File); err != nil {
+		if err := app.AppCtx.Kernel.TestConfig(msg.item.File); err != nil {
 			return m.errorMessage(fmt.Errorf("%w\nplease check profile %s and correct any errors", err, msg.item.Name).Error())
 		}
 		return m.successMessage("Edited")
@@ -293,7 +294,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		if msg.err != nil {
 			return m.errorMessage(msg.err.Error())
 		}
-		m.list.Title = "use: " + subCfg.Use
+		m.list.Title = "use: " + app.AppCtx.SubConfig.Use
 		return m.successMessage("used")
 	case addFinishedMsg:
 		m.list.StopSpinner()
@@ -301,8 +302,8 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 			return m.errorMessage(strings.TrimRight(msg.err.Error(), "\n"))
 		}
 		cmds = append(cmds, m.list.SetItems(listItemsFromProfiles()))
-		m.list.Select(len(subCfg.Profiles) - 1)
-		m.list.Title = "use: " + subCfg.Use
+		m.list.Select(len(app.AppCtx.SubConfig.Profiles) - 1)
+		m.list.Title = "use: " + app.AppCtx.SubConfig.Use
 		cmds = append(cmds, m.successMessage("Added "))
 		return tea.Batch(cmds...)
 	}
@@ -397,4 +398,12 @@ func (m model) appErrorBoundaryView(position lipgloss.Position, text string) str
 		lipgloss.WithWhitespaceChars("/"),
 		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(m.styles.Red)),
 	)
+}
+
+func TUI() error {
+	p := tea.NewProgram(initialModel())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("Error running program: %w", err)
+	}
+	return nil
 }

@@ -2,10 +2,9 @@ package sub
 
 import (
 	"fmt"
-	"os"
-	"slices"
 
-	"github.com/nelvko/proxyctl/log"
+	"github.com/nelvko/proxyctl/internal/log"
+	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
 )
 
@@ -19,10 +18,11 @@ var delCmd = &cobra.Command{
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if interactive {
-			return tui()
+			return profile.TUI()
 		}
 		profileName := args[0]
-		if err := deleteProfile(profileName); err != nil {
+
+		if err := profile.Delete(profileName, force); err != nil {
 			return err
 		}
 		log.Ok(fmt.Sprintf("profile %q deleted successfully", profileName))
@@ -36,37 +36,4 @@ var (
 func init() {
 	delCmd.Flags().BoolVarP(&force, "force", "f", force, "force delete even if the profile is in use")
 	subCmd.AddCommand(delCmd)
-}
-func deleteProfile(name string) error {
-	tgt, err := getProfile(name)
-	if err != nil {
-		return err
-	}
-
-	if subCfg.Use == tgt.Name && !force {
-		return fmt.Errorf("profile %q is currently in use", subCfg.Use)
-	}
-
-	subCfg.Profiles = slices.DeleteFunc(subCfg.Profiles, func(p profile) bool {
-		return p.Name == name
-	})
-	if err := saveSubConfig(); err != nil {
-		return err
-	}
-
-	if err := os.Remove(tgt.File); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func getProfile(name string) (profile, error) {
-	i := slices.IndexFunc(subCfg.Profiles, func(p profile) bool {
-		return p.Name == name
-	})
-	if i == -1 {
-		return profile{}, fmt.Errorf("profile %q not found\nUse `proxyctl sub list` to see available profiles", name)
-	}
-	return subCfg.Profiles[i], nil
 }

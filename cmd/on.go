@@ -5,7 +5,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/nelvko/proxyctl/log"
 	"github.com/spf13/cobra"
 )
 
@@ -17,15 +16,19 @@ var onCmd = &cobra.Command{
 Start proxy kernel and launch a shell with system proxy`,
 	GroupID: manageGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var err error
-		if err = k.Start(); err != nil {
+		IsActive, err := AppCtx.Kernel.IsActive()
+		if err != nil {
 			return err
 		}
-		if err = setProxy(); err != nil {
+		if !IsActive {
+			if err := AppCtx.Kernel.Start(); err != nil {
+				return err
+			}
+		}
+		if err := setProxy(); err != nil {
 			return err
 		}
-		log.Ok("代理环境配置成功")
-		return ExecShell()
+		return execShell()
 	},
 }
 
@@ -55,7 +58,7 @@ func setProxy() error {
 	return nil
 }
 
-func ExecShell() error {
+func execShell() error {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"

@@ -1,45 +1,36 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
 
-	"github.com/nelvko/proxyctl/config"
-	"github.com/nelvko/proxyctl/kernel"
+	"github.com/nelvko/proxyctl/internal/app"
+	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/spf13/cobra"
 )
 
-var k kernel.Kernel
+var AppCtx *app.Runtime
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:           "proxyctl",
+	Use:           config.AppName,
 	Short:         "Go proxy elegantly",
 	Long:          ``,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	Annotations:   skipInit,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		whiteList := []string{"init", "completion", "help"}
 		var err error
+		whiteList := []string{"init", "completion", "help"}
 		if slices.Contains(whiteList, cmd.Name()) {
 			return nil
 		}
-		if err := config.LoadAppConfig(); errors.Is(err, os.ErrNotExist) {
-			if err := setupWizard(); err != nil {
-				return err
-			}
-		} else if err != nil {
-			return fmt.Errorf("load app config: %w", err)
-		}
-		if k, err = kernel.New(); err != nil {
+		if AppCtx, err = app.LoadRuntime(); err != nil {
 			return err
 		}
-		return nil
-
+		return err
 	},
 }
 

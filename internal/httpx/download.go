@@ -19,7 +19,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
-// GhProxy returns the URL of the GitHub proxy if the GITHUB_PROXY environment variable is set, 
+
+// GhProxy returns the URL of the GitHub proxy if the GITHUB_PROXY environment variable is set,
 // otherwise it returns the original URL.
 func GhProxy(raw string) string {
 	ghProxy := os.Getenv("GITHUB_PROXY")
@@ -88,7 +89,7 @@ func Download(ctx context.Context, url string, dst io.Writer) error {
 	return nil
 }
 
-var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render
+var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
 
 const (
 	padding  = 2
@@ -200,9 +201,9 @@ func (m model) View() tea.View {
 	pad := strings.Repeat(" ", padding)
 	content := lipgloss.JoinVertical(
 		lipgloss.Top,
-		m.spinner.View()+" Downloading...",
-		pad+m.progress.View(),
-		pad+helpStyle("Press q to quit.\n"),
+		m.spinner.View()+"Downloading...\n",
+		pad+m.progress.View()+"\n",
+		pad+helpStyle.Render("Press q to quit."),
 	)
 	return tea.NewView(content)
 }

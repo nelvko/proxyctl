@@ -1,18 +1,19 @@
 package sub
 
 import (
+	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
-	Use:   "update",
+	Use:   "update [name]",
 	Short: "Update subscription profiles",
 	Long:  ``,
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if interactive {
-			return tui()
+			return profile.TUI()
 		}
 		// todo
 		return nil
