@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"charm.land/fang/v2"
 	"github.com/nelvko/proxyctl/cmd"
@@ -12,5 +13,12 @@ import (
 )
 
 func main() {
-	fang.Execute(context.Background(), cmd.RootCmd)
+	if err := fang.Execute(
+		context.Background(),
+		cmd.RootCmd,
+		fang.WithNotifySignal(os.Interrupt, os.Kill),
+	); err != nil {
+		os.Exit(1)
+	}
+
 }

@@ -1,6 +1,7 @@
 package sub
 
 import (
+	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
 )
@@ -11,15 +12,16 @@ var editCmd = &cobra.Command{
 	Short: "Edit a subscription profile",
 	Long: `Edit a subscription profile via editor.
 
-With --editor or $EDITOR to specify the editor command. The edited
+	With --editor or $EDITOR to specify the editor command. The edited
 profile will be test after the editor exits.`,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		profiles := rootcmd.Runtime().Profiles
 		if interactive {
-			return profile.TUI()
+			return profile.TUI(profiles)
 		}
 		profileName := args[0]
-		return profile.Edit(profileName, editor)
+		return profiles.Edit(profileName, editor)
 
 	},
 }

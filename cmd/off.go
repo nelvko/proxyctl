@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"os"
-	"strings"
-
+	"github.com/nelvko/proxyctl/internal/env"
 	"github.com/spf13/cobra"
 )
 
@@ -14,26 +12,19 @@ var offCmd = &cobra.Command{
 	Long:    `Stop proxy kernel and launch a shell without system proxy`,
 	GroupID: manageGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		IsActive, err := AppCtx.Kernel.IsActive()
+		IsActive, err := runtimeCtx.Kernel.IsActive()
 		if err != nil {
 			return err
 		}
 		if IsActive {
-			if err := AppCtx.Kernel.Stop(); err != nil {
+			if err := runtimeCtx.Kernel.Stop(); err != nil {
 				return err
 			}
 		}
-		unsetProxy()
-		return execShell()
+		env.UnsetProxy()
+		return env.ExecShell()
 
 	},
-}
-
-func unsetProxy() {
-	for k := range proxyEnv {
-		os.Unsetenv(k)
-		os.Unsetenv(strings.ToLower(k))
-	}
 }
 
 func init() {

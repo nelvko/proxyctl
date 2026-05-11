@@ -7,12 +7,11 @@ import (
 
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/nelvko/proxyctl/internal/config"
 )
 
 var descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
 
-func initialForm(option *config.Profile) *huh.Form {
+func initialAddForm(profiles *Service, option *profile) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -23,7 +22,7 @@ func initialForm(option *config.Profile) *huh.Form {
 			huh.NewInput().
 				Title("Profile Name").
 				Description(descStyle.Render("Optional; defaults to the current Unix timestamp")).
-				Validate(checkUniqueName).
+				Validate(profiles.ValidateName).
 				Value(&option.Name),
 		),
 	)
@@ -47,8 +46,8 @@ func validateSourceURL(raw string) error {
 	}
 }
 
-func TuiAdd(option *config.Profile) error {
-	if err := initialForm(option).Run(); err != nil {
+func PromptAdd(profiles *Service, option *profile) error {
+	if err := initialAddForm(profiles, option).Run(); err != nil {
 		return err
 	}
 	return nil

@@ -1,4 +1,4 @@
-package kernel
+package setup
 
 import (
 	"context"
@@ -10,23 +10,12 @@ import (
 	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/httpx"
+	"github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/unisvc"
 )
 
-// func selectExistService(svc service.Service, k kernel.Kernel) (bool, error) {
-// 	var confirm bool
-// 	err := huh.NewConfirm().
-// 		Title(fmt.Sprintf("Detected %s service: %s. Do you want to proceed with using this service?", svc.InitSystem(), k)).
-// 		Affirmative("Yes!").
-// 		Negative("No.").
-// 		Value(&confirm).
-// 		Run()
-// 	if err != nil {
-// 		return confirm, err
-// 	}
-// 	return confirm, nil
-// }
+const defaultKernelName = "mihomo"
 
 func CanWriteTo(path string) error {
 	if len(path) == 0 {
@@ -62,31 +51,18 @@ func kernelConfigForm(kernelCfg *config.KernelConfig) error {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Select proxy kernel").
-				// DescriptionFunc(func() string {
-				// 	return fmt.Sprintf("download and install the %s kernel", kernelName)
-				// }, &kernelName).
 				Options(
-					huh.NewOption(mihomo, mihomo),
-					huh.NewOption(clash, clash),
-					huh.NewOption(singbox, singbox),
+					huh.NewOption(defaultKernelName, defaultKernelName),
 				).
 				Value(&kernelCfg.Name),
 
 			huh.NewInput().
 				Title("proxy kernel's binary").
-				// PlaceholderFunc(defaultBinPath, &kernelName).
-				// SuggestionsFunc(func() []string {
-				// 	return []string{defaultBinPath()}
-				// }, &config.AppCfg.Kernel.Name).
 				Value(&kernelCfg.Bin).
 				Validate(CanWriteTo),
 
 			huh.NewInput().
 				Title("configuration directory").
-				// PlaceholderFunc(defaultConfigDir, &config.AppCfg.Kernel.Name).
-				// SuggestionsFunc(func() []string {
-				// 	return []string{defaultConfigDir()}
-				// }, &config.AppCfg.Kernel.ConfigDir).
 				Value(&kernelCfg.ConfigDir).
 				Validate(CanWriteTo),
 		),
@@ -114,45 +90,44 @@ func ConfirmWizard() (bool, error) {
 }
 
 func Wizard(yes bool) error {
-	confirm, err := ConfirmWizard()
-	if err != nil {
-		return err
+	if !yes {
+		confirm, err := ConfirmWizard()
+		if err != nil {
+			return err
+		}
+		if !confirm {
+			fmt.Println("No problem! You can initialize whenever you're ready by running `proxyctl init`.")
+			return nil
+		}
 	}
-	if !confirm {
-		fmt.Println("No problem! You can initialize whenever you're ready by running `proxyctl init`.")
-		return nil
+
+	appCfg := &config.AppConfig{
+		Kernel: defaultKernelConfig(),
 	}
-	// var installedKernel = []kernel.Kernel{}
-	// for _, v := range kernel.AvailableKernel {
-	// 	svc, _ = kernel.New(v)
-	// 	if IsInstalled, _ := svc.IsInstalled(); IsInstalled {
-	// 		installedKernel = append(installedKernel, v)
-	// 	}
-	// }
-	// if len(installedKernel) > 0 {
-	// 	selectExistService(installedKernel)
-	// }
-	appCfg := &config.AppConfig{}
 	kernelCfg := &appCfg.Kernel
-	if yes {
-		kernelCfg.Name = mihomo
-		kernelCfg.Bin = "/root/mihomo"
-		kernelCfg.ConfigDir = "/root/.config/mihomo"
-	}
-	if err := kernelConfigForm(kernelCfg); err != nil {
-		return err
+	if !yes {
+		if err := kernelConfigForm(kernelCfg); err != nil {
+			return err
+		}
 	}
 	kernelCfg.ConfigFile = filepath.Join(kernelCfg.ConfigDir, "config.yaml")
 	if err := os.MkdirAll(kernelCfg.ConfigDir, 0755); err != nil {
 		return err
 	}
-	if _, err := os.Create(kernelCfg.ConfigFile); err != nil {
+	cfgFile, err := os.Create(kernelCfg.ConfigFile)
+	if err != nil {
+		return err
+	}
+	if err := cfgFile.Close(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(kernelCfg.Bin), 0755); err != nil {
 		return err
 	}
-	k, _ := New(kernelCfg)
+	k, err := kernel.New(kernelCfg)
+	if err != nil {
+		return err
+	}
 	url, err := k.DownloadURL()
 	if err != nil {
 		return err
@@ -201,4 +176,17 @@ func Wizard(yes bool) error {
 	}
 	log.Ok("Successfully initialized", "✅")
 	return nil
+}
+
+func defaultKernelConfig() config.KernelConfig {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+
+	return config.KernelConfig{
+		Name:      defaultKernelName,
+		Bin:       filepath.Join(homeDir, ".local", "bin", defaultKernelName),
+		ConfigDir: filepath.Join(homeDir, ".config", defaultKernelName),
+	}
 }

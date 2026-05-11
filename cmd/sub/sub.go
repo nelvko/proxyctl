@@ -1,8 +1,7 @@
 package sub
 
 import (
-	"github.com/nelvko/proxyctl/cmd"
-	"github.com/nelvko/proxyctl/internal/kernel"
+	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
 )
@@ -15,17 +14,13 @@ var subCmd = &cobra.Command{
 
 Run without a subcommand to open the TUI.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return profile.TUI()
+		return profile.TUI(rootcmd.Runtime().Profiles)
 	},
 }
-
-var (
-	k kernel.Kernel
-)
 
 var interactive bool
 
 func init() {
 	subCmd.PersistentFlags().BoolVarP(&interactive, "interactive", "i", false, "enable interactive TUI mode")
-	cmd.RootCmd.AddCommand(subCmd)
+	rootcmd.RootCmd.AddCommand(subCmd)
 }

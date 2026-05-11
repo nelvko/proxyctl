@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/nelvko/proxyctl/internal/config"
-	"github.com/nelvko/proxyctl/internal/kernel"
+	"github.com/nelvko/proxyctl/internal/setup"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +21,7 @@ var initCmd = &cobra.Command{
 				return errors.New("configuration already exists. Use --force to overwrite")
 			}
 		}
-		return kernel.Wizard(yes)
+		return setup.Wizard(yes)
 	},
 }
 

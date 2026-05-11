@@ -1,6 +1,9 @@
 package sub
 
 import (
+	"fmt"
+
+	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
 )
@@ -12,10 +15,18 @@ var lsCmd = &cobra.Command{
 	Short:   "List subscription profiles",
 	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		profiles := rootcmd.Runtime().Profiles
 		if interactive {
-			return profile.TUI()
+			return profile.TUI(profiles)
 		}
-		// todo list profiles
+		current := profiles.CurrentName()
+		for _, p := range profiles.List() {
+			marker := " "
+			if p.Name == current {
+				marker = "*"
+			}
+			fmt.Printf("%s %s\t%s\n", marker, p.Name, p.URL)
+		}
 		return nil
 	},
 }

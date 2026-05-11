@@ -3,6 +3,7 @@ package sub
 import (
 	"fmt"
 
+	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
@@ -15,11 +16,12 @@ var useCmd = &cobra.Command{
 	Long:  `Use the specified subscription profile for the proxy kernel.`,
 	Args:  validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		profiles := rootcmd.Runtime().Profiles
 		if interactive {
-			return profile.TUI()
+			return profile.TUI(profiles)
 		}
 		profileName := args[0]
-		if err := profile.Use(profileName); err != nil {
+		if err := profiles.Use(profileName); err != nil {
 			return err
 		}
 		log.Ok(fmt.Sprintf("profile %q used successfully", profileName))

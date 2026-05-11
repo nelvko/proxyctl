@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nelvko/proxyctl/internal/app"
+	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/profile"
@@ -28,18 +28,19 @@ The profile is validated before it is saved. If this is the first
 profile, it becomes active automatically.`,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		profiles := rootcmd.Runtime().Profiles
 		if interactive {
-			if err := profile.TuiAdd(option); err != nil {
+			if err := profile.PromptAdd(profiles, option); err != nil {
 				return err
 			}
 		} else {
 			option.URL = args[0]
 		}
-		if err := profile.Add(option); err != nil {
+		if err := profiles.Add(option); err != nil {
 			return err
 		}
-		if use || (app.AppCtx.SubConfig.Use == "" && len(app.AppCtx.SubConfig.Profiles) == 1) {
-			if err := profile.Use(option.Name); err != nil {
+		if use || (profiles.CurrentName() == "" && len(profiles.List()) == 1) {
+			if err := profiles.Use(option.Name); err != nil {
 				return err
 			}
 			log.Ok(fmt.Sprintf("profile %q used successfully", option.Name))
