@@ -33,8 +33,8 @@ func LoadRuntime() (*Runtime, error) {
 	rt := &Runtime{
 		// AppConfig: appCfg,
 		// SubConfig: subCfg,
-		Kernel:    k,
-		Profiles:  profile.NewService(appCfg, subCfg, k),
+		Kernel:   k,
+		Profiles: profile.NewService(appCfg, subCfg, k),
 	}
 	return rt, nil
 }

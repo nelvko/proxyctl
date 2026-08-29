@@ -28,7 +28,9 @@ func New(kernelCfg *config.KernelConfig) (Kernel, error) {
 	switch kernelCfg.Name {
 	case "", mihomo:
 		return &Mihomo{
-			unisvc.New(mihomo),
+			// User scope: mihomo lives in $HOME, no root needed to
+			// install or operate the service.
+			unisvc.New(mihomo, unisvc.WithScope(unisvc.ScopeUser)),
 			*kernelCfg,
 		}, nil
 	default:

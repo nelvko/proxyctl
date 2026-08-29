@@ -1,4 +1,4 @@
-package sub
+package config
 
 import (
 	"errors"
@@ -19,6 +19,7 @@ type SubConfig struct {
 	Use      string    `mapstructure:"use"`
 	Profiles []Profile `mapstructure:"profiles"`
 }
+
 type Profile struct {
 	Name string `mapstructure:"name"`
 	URL  string `mapstructure:"url"`
@@ -26,6 +27,7 @@ type Profile struct {
 
 	Update UpdateConfig `mapstructure:"update"`
 }
+
 type UpdateConfig struct {
 	Enable bool `mapstructure:"enable"`
 

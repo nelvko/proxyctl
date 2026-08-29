@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,14 +35,17 @@ func CanWriteTo(path string) error {
 			continue
 		}
 		f, err := os.CreateTemp(parent, "test*")
-		if os.IsPermission(err) {
-			return fmt.Errorf("Permission denied: unable to write to %s.  Try running with sudo or change the path.", path)
+		if err != nil {
+			if os.IsPermission(err) {
+				return fmt.Errorf("permission denied: unable to write to %s. Try running with sudo or change the path", path)
+			}
+			// e.g. a path component is a regular file (ENOTDIR):
+			// report instead of looping forever.
+			return fmt.Errorf("unable to write to %s: %w", path, err)
 		}
-		if err == nil {
-			f.Close()
-			os.Remove(f.Name())
-			return nil
-		}
+		f.Close()
+		os.Remove(f.Name())
+		return nil
 	}
 	return nil
 }
@@ -128,6 +132,11 @@ func Wizard(yes bool) error {
 	if err != nil {
 		return err
 	}
+	// Fail fast before the long download if the init system can't
+	// host a service at all (e.g. non-systemd Linux, macOS).
+	if is := k.InitSystem(); is != unisvc.InitSystemd {
+		return fmt.Errorf("service management is not available on %s (systemd only for now)", is)
+	}
 	url, err := k.DownloadURL()
 	if err != nil {
 		return err
@@ -167,7 +176,8 @@ func Wizard(yes bool) error {
 		Command: kernelCfg.Bin,
 		Args:    []string{"-d", kernelCfg.ConfigDir, "-f", kernelCfg.ConfigFile},
 	}
-	if err := k.Install(&spec); err != nil {
+	err = installService(k, &spec)
+	if err != nil {
 		return err
 	}
 
@@ -176,6 +186,20 @@ func Wizard(yes bool) error {
 	}
 	log.Ok("Successfully initialized", "✅")
 	return nil
+}
+
+// installService installs the service, replacing a previously installed
+// unit so that re-running init (e.g. `init --force` with new paths)
+// converges to the new spec instead of failing.
+func installService(k kernel.Kernel, spec *unisvc.Spec) error {
+	err := k.Install(spec)
+	if errors.Is(err, unisvc.ErrAlreadyInstalled) {
+		if err := k.UnInstall(); err != nil {
+			return fmt.Errorf("reinstall service: %w", err)
+		}
+		err = k.Install(spec)
+	}
+	return err
 }
 
 func defaultKernelConfig() config.KernelConfig {
