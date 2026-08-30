@@ -1,29 +1,39 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/nelvko/proxyctl/internal/env"
 	"github.com/spf13/cobra"
 )
 
 // offCmd represents the off command
 var offCmd = &cobra.Command{
-	Use:     "off",
-	Short:   "Disable proxy environment",
-	Long:    `Stop proxy kernel and launch a shell without system proxy`,
-	GroupID: manageGroup.ID,
+	Use:   "off",
+	Short: "Disable the proxy environment in the current shell",
+	Long: `Disable the proxy environment in the current shell.
+
+Stops the kernel service and prints shell statements that remove
+the proxy environment to stdout.`,
+	GroupID:     manageGroup.ID,
+	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		IsActive, err := runtimeCtx.Kernel.IsActive()
+		k := Runtime().Kernel
+
+		active, err := k.IsActive()
 		if err != nil {
 			return err
 		}
-		if IsActive {
-			if err := runtimeCtx.Kernel.Stop(); err != nil {
+		if active {
+			if err := k.Stop(); err != nil {
 				return err
 			}
 		}
-		env.UnsetProxy()
-		return env.ExecShell()
 
+		printShell(env.ProxyEnv{}.Unset(env.Shell()))
+		fmt.Fprintln(os.Stderr, "😼 proxy off")
+		return nil
 	},
 }
 

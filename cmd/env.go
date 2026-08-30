@@ -1,0 +1,43 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/nelvko/proxyctl/internal/env"
+	"github.com/spf13/cobra"
+)
+
+// envCmd prints the proxy environment statements without applying them.
+var envCmd = &cobra.Command{
+	Use:   "env",
+	Short: "Print proxy environment statements",
+	Long: `Print the shell statements for the proxy environment, resolved
+from the active kernel config, without applying them.
+
+Useful for debugging, or for a custom hook that keeps the
+environment in sync:
+
+    eval "$(proxyctl env)"
+`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		e, err := env.Resolve(Runtime().Kernel.ConfigFile())
+		if err != nil {
+			return err
+		}
+		lines := e.Export(env.Shell())
+		if unset {
+			lines = e.Unset(env.Shell())
+		}
+		printShell(lines)
+		fmt.Fprintln(os.Stderr, "😼 proxy env")
+		return nil
+	},
+}
+
+var unset bool
+
+func init() {
+	RootCmd.AddCommand(envCmd)
+	envCmd.Flags().BoolVarP(&unset, "unset", "u", false, "Print statements that remove the environment instead")
+}
