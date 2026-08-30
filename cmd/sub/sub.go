@@ -14,19 +14,19 @@ var subCmd = &cobra.Command{
 
 Run without a subcommand to open the TUI.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return profile.TUI(profiles())
+		svc, err := profiles()
+		if err != nil {
+			return err
+		}
+		return profile.TUI(svc)
 	},
 }
 
 var interactive bool
 
 // profiles returns the subscription service bound to the active kernel.
-func profiles() *profile.Service {
-	svc, err := rootcmd.App().Profiles()
-	if err != nil {
-		return nil
-	}
-	return svc
+func profiles() (*profile.Service, error) {
+	return rootcmd.App().Profiles()
 }
 
 func init() {

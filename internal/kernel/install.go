@@ -69,11 +69,13 @@ func Download(k Kernel, bin string) error {
 // A service that was running before is restarted afterwards.
 func InstallService(k Kernel, spec *unisvc.Spec) error {
 	wasActive := false
-	if on, err := k.IsActive(); err == nil && on {
-		wasActive = true
+	on, err := k.IsActive()
+	if err != nil {
+		return err
 	}
+	wasActive = on
 
-	err := k.Install(spec)
+	err = k.Install(spec)
 	if errors.Is(err, unisvc.ErrAlreadyInstalled) {
 		if err := k.UnInstall(); err != nil {
 			return fmt.Errorf("reinstall service: %w", err)

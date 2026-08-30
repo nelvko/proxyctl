@@ -15,7 +15,10 @@ var editCmd = &cobra.Command{
 profile will be test after the editor exits.`,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := profiles()
+		profiles, err := profiles()
+		if err != nil {
+			return err
+		}
 		if interactive {
 			return profile.TUI(profiles)
 		}

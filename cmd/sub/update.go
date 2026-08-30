@@ -12,7 +12,10 @@ var updateCmd = &cobra.Command{
 	Long:  ``,
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := profiles()
+		profiles, err := profiles()
+		if err != nil {
+			return err
+		}
 		if interactive {
 			return profile.TUI(profiles)
 		}

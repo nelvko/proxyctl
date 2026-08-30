@@ -17,7 +17,10 @@ var delCmd = &cobra.Command{
 `,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := profiles()
+		profiles, err := profiles()
+		if err != nil {
+			return err
+		}
 		if interactive {
 			return profile.TUI(profiles)
 		}

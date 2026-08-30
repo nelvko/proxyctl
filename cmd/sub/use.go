@@ -15,7 +15,10 @@ var useCmd = &cobra.Command{
 	Long:  `Use the specified subscription profile for the proxy kernel.`,
 	Args:  validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := profiles()
+		profiles, err := profiles()
+		if err != nil {
+			return err
+		}
 		if interactive {
 			return profile.TUI(profiles)
 		}

@@ -27,7 +27,10 @@ The profile is validated before it is saved. If this is the first
 profile, it becomes active automatically.`,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := profiles()
+		profiles, err := profiles()
+		if err != nil {
+			return err
+		}
 		if interactive {
 			if err := profile.PromptAdd(profiles, option); err != nil {
 				return err

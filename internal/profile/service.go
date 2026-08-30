@@ -130,7 +130,10 @@ func (s *Service) Add(option *profile) error {
 
 	// The first profile becomes active automatically.
 	if s.subConfig.Use == "" && len(s.subConfig.Profiles) == 1 {
-		return s.Use(option.Name)
+		if err := s.Use(option.Name); err != nil {
+			return err
+		}
+		log.Ok(fmt.Sprintf("profile %q activated (first profile)", option.Name))
 	}
 	return nil
 }
@@ -251,7 +254,9 @@ func (s *Service) commitUse(kernelCfg string, old []byte, oldErr error) error {
 		return fmt.Errorf("switch failed: %v (kernel config left switched; previous config unreadable)", switchErr)
 	}
 	if err := os.WriteFile(kernelCfg, old, 0o644); err == nil {
-		_ = s.kernel.Restart()
+		if rerr := s.kernel.Restart(); rerr != nil {
+			return fmt.Errorf("switch failed: %v (kernel config restored, restore restart failed: %v, run `proxyctl on`)", switchErr, rerr)
+		}
 		return fmt.Errorf("switch failed: %v (kernel config restored)", switchErr)
 	}
 	return fmt.Errorf("switch failed: %v (kernel config left switched; restore %s manually)", switchErr, kernelCfg)

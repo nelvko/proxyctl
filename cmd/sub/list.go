@@ -14,7 +14,10 @@ var lsCmd = &cobra.Command{
 	Short:   "List subscription profiles",
 	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := profiles()
+		profiles, err := profiles()
+		if err != nil {
+			return err
+		}
 		if interactive {
 			return profile.TUI(profiles)
 		}

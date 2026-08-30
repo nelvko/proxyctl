@@ -112,9 +112,17 @@ func (a *App) InstallKernel(name string) error {
 // subscription on it. Re-invoking with the same name retries a failed
 // re-apply.
 func (a *App) UseKernel(name string) error {
-	next := a.Cfg.KernelByName(name)
-	if next == nil {
+	if a.Cfg.KernelByName(name) == nil {
 		return fmt.Errorf("kernel %q is not installed, run `proxyctl kernel install %s` first", name, name)
+	}
+
+	// Stop the previously active kernel whenever it is not the target —
+	// also on the idempotent retry path, so a failed first switch (e.g.
+	// Stop failed and the old kernel still holds the port) can recover.
+	if prev := a.Cfg.ActiveKernel(); prev != nil && prev.Name != name {
+		if kPrev, err := kernel.New(prev); err == nil {
+			_ = kPrev.Stop()
+		}
 	}
 
 	if a.Cfg.Use != name {
@@ -122,10 +130,6 @@ func (a *App) UseKernel(name string) error {
 			if kernel.FormatOf(active.Name) != kernel.FormatOf(name) {
 				return fmt.Errorf("kernel %q uses %s config format, incompatible with active kernel %q (%s)",
 					name, kernel.FormatOf(name), active.Name, kernel.FormatOf(active.Name))
-			}
-			// Best-effort stop; tolerate kernels we can no longer construct.
-			if kActive, err := kernel.New(active); err == nil {
-				_ = kActive.Stop()
 			}
 		}
 		a.Cfg.Use = name
@@ -144,9 +148,12 @@ func (a *App) UseKernel(name string) error {
 	case errors.Is(err, profile.ErrNoActiveProfile):
 		return nil
 	case err != nil:
-		return err
+		return fmt.Errorf("kernel switched but the current subscription is unusable: %w", err)
 	}
-	return svc.Use(p.Name)
+	if err := svc.Use(p.Name); err != nil {
+		return fmt.Errorf("kernel switched but subscription re-apply failed: %w", err)
+	}
+	return nil
 }
 
 // UninstallKernel stops and removes the kernel's service, files and
@@ -162,6 +169,10 @@ func (a *App) UninstallKernel(name string) error {
 		if err := k.UnInstall(); err != nil {
 			return err
 		}
+	} else {
+		// Kernels we can no longer construct still get their stale unit
+		// removed.
+		_ = unisvc.New(kcfg.Name, unisvc.WithScope(unisvc.ScopeUser)).UnInstall()
 	}
 	kernel.RemoveKernelFiles(*kcfg)
 
@@ -190,9 +201,11 @@ func (a *App) UpgradeKernel(name string) error {
 
 	wasActive := false
 	if a.Cfg.Use == name {
-		if on, err := k.IsActive(); err == nil && on {
-			wasActive = true
+		on, err := k.IsActive()
+		if err != nil {
+			return err
 		}
+		wasActive = on
 	}
 
 	if err := kernel.Download(k, kcfg.Bin); err != nil {
