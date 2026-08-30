@@ -19,7 +19,10 @@ the proxy environment to stdout.`,
 	GroupID:     manageGroup.ID,
 	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		k := Runtime().Kernel
+		k, err := App().Kernel()
+		if err != nil {
+			return err
+		}
 
 		active, err := k.IsActive()
 		if err != nil {

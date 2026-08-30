@@ -24,7 +24,10 @@ current shell; the kernel config decides the actual address.`,
 	GroupID:     manageGroup.ID,
 	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		k := Runtime().Kernel
+		k, err := App().Kernel()
+		if err != nil {
+			return err
+		}
 
 		if active, err := k.IsActive(); err != nil {
 			return err

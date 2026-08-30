@@ -31,64 +31,9 @@ func DefaultConfig(name string) config.KernelConfig {
 	}
 }
 
-// Install downloads the kernel, installs its user service and registers it
-// in the app config. The first installed kernel becomes active.
-func Install(name string) error {
-	desc, ok := registry[name]
-	if !ok {
-		return fmt.Errorf("unknown kernel %q, available: %s", name, joinNames())
-	}
-	if !desc.ready {
-		return fmt.Errorf("kernel %q is not supported yet", name)
-	}
-
-	kcfg := DefaultConfig(name)
-	k, err := New(&kcfg)
-	if err != nil {
-		return err
-	}
-	// Fail fast before the long download if the init system can't host a
-	// service at all (e.g. non-systemd Linux, macOS).
-	if is := k.InitSystem(); is != unisvc.InitSystemd {
-		return fmt.Errorf("service management is not available on %s (systemd only for now)", is)
-	}
-
-	if err := os.MkdirAll(kcfg.ConfigDir, 0o755); err != nil {
-		return err
-	}
-	if _, err := os.Stat(kcfg.ConfigFile); errors.Is(err, os.ErrNotExist) {
-		f, err := os.Create(kcfg.ConfigFile)
-		if err != nil {
-			return err
-		}
-		f.Close()
-	}
-
-	if err := download(k, kcfg.Bin); err != nil {
-		return err
-	}
-
-	spec := unisvc.Spec{
-		Command: kcfg.Bin,
-		Args:    []string{"-d", kcfg.ConfigDir, "-f", kcfg.ConfigFile},
-	}
-	if err := installService(k, &spec); err != nil {
-		return err
-	}
-
-	appCfg, err := config.LoadAppConfig()
-	if err != nil {
-		return err
-	}
-	appCfg.SetKernel(kcfg)
-	if appCfg.Use == "" {
-		appCfg.Use = kcfg.Name
-	}
-	return config.SaveAppConfig(appCfg)
-}
-
-// download fetches the kernel release and extracts the binary to bin.
-func download(k Kernel, bin string) error {
+// Download fetches the kernel release and extracts the binary to bin,
+// replacing it atomically.
+func Download(k Kernel, bin string) error {
 	url, err := k.DownloadURL()
 	if err != nil {
 		return err
@@ -119,10 +64,10 @@ func download(k Kernel, bin string) error {
 	return os.Chmod(bin, 0o755)
 }
 
-// installService installs the service, replacing a previously installed
+// InstallService installs the service, replacing a previously installed
 // unit so re-running install converges to the new spec instead of failing.
 // A service that was running before is restarted afterwards.
-func installService(k Kernel, spec *unisvc.Spec) error {
+func InstallService(k Kernel, spec *unisvc.Spec) error {
 	wasActive := false
 	if on, err := k.IsActive(); err == nil && on {
 		wasActive = true
@@ -142,15 +87,4 @@ func installService(k Kernel, spec *unisvc.Spec) error {
 		return k.Start()
 	}
 	return nil
-}
-
-func joinNames() string {
-	out := ""
-	for i, name := range names {
-		if i > 0 {
-			out += ", "
-		}
-		out += name
-	}
-	return out
 }

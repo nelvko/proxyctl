@@ -1,0 +1,205 @@
+// Package app assembles the proxyctl state (kernels + subscriptions) and
+// owns the use cases that span the kernel, service and profile domains.
+// Commands stay thin: parse arguments, call a use case, print.
+package app
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/kernel"
+	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/unisvc"
+)
+
+// App is the loaded application state. Zero kernels is a loadable, valid
+// state — lifecycle commands operate on it directly.
+type App struct {
+	Cfg *config.AppConfig
+	Sub *config.SubConfig
+}
+
+func Load() (*App, error) {
+	cfg, err := config.LoadAppConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load app config: %w", err)
+	}
+	sub, err := config.LoadSubConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load sub config: %w", err)
+	}
+	return &App{Cfg: cfg, Sub: sub}, nil
+}
+
+// Save persists the app config.
+func (a *App) Save() error {
+	return config.SaveAppConfig(a.Cfg)
+}
+
+// Kernel returns the active kernel, or config.ErrNoKernel.
+func (a *App) Kernel() (kernel.Kernel, error) {
+	kcfg := a.Cfg.ActiveKernel()
+	if kcfg == nil {
+		return nil, config.ErrNoKernel
+	}
+	return kernel.New(kcfg)
+}
+
+// Profiles returns the subscription service bound to the active kernel.
+func (a *App) Profiles() (*profile.Service, error) {
+	k, err := a.Kernel()
+	if err != nil {
+		return nil, err
+	}
+	return profile.NewService(a.Sub, k), nil
+}
+
+// InstallKernel downloads the kernel, installs its user service and
+// registers it. The first installed kernel becomes active.
+func (a *App) InstallKernel(name string) error {
+	if !kernel.Known(name) {
+		return fmt.Errorf("unknown kernel %q, available: %s", name, strings.Join(kernel.Names(), ", "))
+	}
+	if !kernel.Ready(name) {
+		return fmt.Errorf("kernel %q is not supported yet", name)
+	}
+
+	kcfg := kernel.DefaultConfig(name)
+	k, err := kernel.New(&kcfg)
+	if err != nil {
+		return err
+	}
+	// Fail fast before the long download if the init system can't host a
+	// service at all (e.g. non-systemd Linux, macOS).
+	if is := k.InitSystem(); is != unisvc.InitSystemd {
+		return fmt.Errorf("service management is not available on %s (systemd only for now)", is)
+	}
+
+	if err := os.MkdirAll(kcfg.ConfigDir, 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(kcfg.ConfigFile); errors.Is(err, os.ErrNotExist) {
+		f, err := os.Create(kcfg.ConfigFile)
+		if err != nil {
+			return err
+		}
+		f.Close()
+	}
+
+	if err := kernel.Download(k, kcfg.Bin); err != nil {
+		return err
+	}
+
+	spec := unisvc.Spec{
+		Command: kcfg.Bin,
+		Args:    []string{"-d", kcfg.ConfigDir, "-f", kcfg.ConfigFile},
+	}
+	if err := kernel.InstallService(k, &spec); err != nil {
+		return err
+	}
+
+	a.Cfg.SetKernel(kcfg)
+	if a.Cfg.Use == "" {
+		a.Cfg.Use = kcfg.Name
+	}
+	return a.Save()
+}
+
+// UseKernel switches the active kernel and re-applies the current
+// subscription on it. Re-invoking with the same name retries a failed
+// re-apply.
+func (a *App) UseKernel(name string) error {
+	next := a.Cfg.KernelByName(name)
+	if next == nil {
+		return fmt.Errorf("kernel %q is not installed, run `proxyctl kernel install %s` first", name, name)
+	}
+
+	if a.Cfg.Use != name {
+		if active := a.Cfg.ActiveKernel(); active != nil {
+			if kernel.FormatOf(active.Name) != kernel.FormatOf(name) {
+				return fmt.Errorf("kernel %q uses %s config format, incompatible with active kernel %q (%s)",
+					name, kernel.FormatOf(name), active.Name, kernel.FormatOf(active.Name))
+			}
+			// Best-effort stop; tolerate kernels we can no longer construct.
+			if kActive, err := kernel.New(active); err == nil {
+				_ = kActive.Stop()
+			}
+		}
+		a.Cfg.Use = name
+		if err := a.Save(); err != nil {
+			return err
+		}
+	}
+
+	// Re-apply the current subscription on the (new) kernel.
+	svc, err := a.Profiles()
+	if err != nil {
+		return err
+	}
+	p, err := svc.Using()
+	switch {
+	case errors.Is(err, profile.ErrNoActiveProfile):
+		return nil
+	case err != nil:
+		return err
+	}
+	return svc.Use(p.Name)
+}
+
+// UninstallKernel stops and removes the kernel's service, files and
+// config entry. Kernels that can no longer be constructed still get their
+// files and entry removed. If it was active, no kernel remains active.
+func (a *App) UninstallKernel(name string) error {
+	kcfg := a.Cfg.KernelByName(name)
+	if kcfg == nil {
+		return fmt.Errorf("kernel %q is not installed", name)
+	}
+	if k, err := kernel.New(kcfg); err == nil {
+		_ = k.Stop()
+		if err := k.UnInstall(); err != nil {
+			return err
+		}
+	}
+	kernel.RemoveKernelFiles(*kcfg)
+
+	a.Cfg.RemoveKernel(name)
+	if a.Cfg.Use == name {
+		a.Cfg.Use = ""
+	}
+	return a.Save()
+}
+
+// UpgradeKernel replaces the kernel binary with the latest release. An
+// empty name upgrades the active kernel. The service is restarted if it
+// was running.
+func (a *App) UpgradeKernel(name string) error {
+	if name == "" {
+		name = a.Cfg.Use
+	}
+	kcfg := a.Cfg.KernelByName(name)
+	if kcfg == nil {
+		return fmt.Errorf("kernel %q is not installed", name)
+	}
+	k, err := kernel.New(kcfg)
+	if err != nil {
+		return err
+	}
+
+	wasActive := false
+	if a.Cfg.Use == name {
+		if on, err := k.IsActive(); err == nil && on {
+			wasActive = true
+		}
+	}
+
+	if err := kernel.Download(k, kcfg.Bin); err != nil {
+		return err
+	}
+	if wasActive {
+		return k.Restart()
+	}
+	return nil
+}

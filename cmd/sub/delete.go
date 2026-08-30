@@ -3,7 +3,6 @@ package sub
 import (
 	"fmt"
 
-	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
@@ -18,7 +17,7 @@ var delCmd = &cobra.Command{
 `,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := rootcmd.Runtime().Profiles
+		profiles := profiles()
 		if interactive {
 			return profile.TUI(profiles)
 		}

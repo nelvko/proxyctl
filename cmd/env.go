@@ -21,7 +21,11 @@ environment in sync:
     eval "$(proxyctl env)"
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		e, err := env.Resolve(Runtime().Kernel.ConfigFile())
+		k, err := App().Kernel()
+		if err != nil {
+			return err
+		}
+		e, err := env.Resolve(k.ConfigFile())
 		if err != nil {
 			return err
 		}

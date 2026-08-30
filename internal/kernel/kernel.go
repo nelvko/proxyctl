@@ -66,6 +66,17 @@ func ReadyNames() []string {
 	return ready
 }
 
+// Known reports whether name is a registered kernel.
+func Known(name string) bool {
+	_, ok := registry[name]
+	return ok
+}
+
+// Ready reports whether the kernel is implemented.
+func Ready(name string) bool {
+	return registry[name].ready
+}
+
 // FormatOf returns the config format of a known kernel.
 func FormatOf(name string) ConfigFormat {
 	return registry[name].format
@@ -80,25 +91,19 @@ type Entry struct {
 	Ready     bool
 }
 
-func List() ([]Entry, error) {
-	appCfg, err := config.LoadAppConfig()
-	if err != nil {
-		return nil, err
-	}
-
+// List builds the kernel overview from cfg without touching the system.
+func List(cfg *config.AppConfig) []Entry {
 	entries := make([]Entry, 0, len(names))
 	for _, name := range names {
 		desc := registry[name]
 		entry := Entry{Name: name, Format: desc.format, Ready: desc.ready}
-		for i := range appCfg.Kernels {
-			if appCfg.Kernels[i].Name == name {
-				entry.Installed = true
-				entry.Active = appCfg.Use == name
-			}
+		if cfg.KernelByName(name) != nil {
+			entry.Installed = true
+			entry.Active = cfg.Use == name
 		}
 		entries = append(entries, entry)
 	}
-	return entries, nil
+	return entries
 }
 
 func New(kernelCfg *config.KernelConfig) (Kernel, error) {
@@ -115,14 +120,4 @@ func New(kernelCfg *config.KernelConfig) (Kernel, error) {
 	default:
 		return nil, fmt.Errorf("unknown kernel %q, available: mihomo, clash, sing-box", kernelCfg.Name)
 	}
-}
-
-// lookup returns the installed kernel config by name, or nil.
-func lookup(appCfg *config.AppConfig, name string) *config.KernelConfig {
-	for i := range appCfg.Kernels {
-		if appCfg.Kernels[i].Name == name {
-			return &appCfg.Kernels[i]
-		}
-	}
-	return nil
 }

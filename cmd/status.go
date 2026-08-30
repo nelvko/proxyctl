@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/env"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/spf13/cobra"
@@ -19,12 +19,12 @@ var statusCmd = &cobra.Command{
 and the current subscription.`,
 	Annotations: map[string]string{"skipRuntime": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		appCfg, err := config.LoadAppConfig()
+		a, err := app.Load()
 		if err != nil {
 			return err
 		}
 
-		kcfg := appCfg.ActiveKernel()
+		kcfg := a.Cfg.ActiveKernel()
 		if kcfg == nil {
 			fmt.Println("kernel:    none (run `proxyctl kernel install`)")
 			return nil
@@ -54,8 +54,8 @@ and the current subscription.`,
 		}
 
 		profile := "none"
-		if subCfg, err := config.LoadSubConfig(); err == nil && subCfg.Use != "" {
-			profile = fmt.Sprintf("%s (%d total)", subCfg.Use, len(subCfg.Profiles))
+		if a.Sub.Use != "" {
+			profile = fmt.Sprintf("%s (%d total)", a.Sub.Use, len(a.Sub.Profiles))
 		}
 		fmt.Printf("profile:   %s\n", profile)
 		return nil

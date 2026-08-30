@@ -14,11 +14,20 @@ var subCmd = &cobra.Command{
 
 Run without a subcommand to open the TUI.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return profile.TUI(rootcmd.Runtime().Profiles)
+		return profile.TUI(profiles())
 	},
 }
 
 var interactive bool
+
+// profiles returns the subscription service bound to the active kernel.
+func profiles() *profile.Service {
+	svc, err := rootcmd.App().Profiles()
+	if err != nil {
+		return nil
+	}
+	return svc
+}
 
 func init() {
 	subCmd.PersistentFlags().BoolVarP(&interactive, "interactive", "i", false, "enable interactive TUI mode")

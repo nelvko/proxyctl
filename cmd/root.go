@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"charm.land/huh/v2"
-	"github.com/nelvko/proxyctl/internal/bootstrap"
+	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/config"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/nelvko/proxyctl/internal/log"
@@ -14,7 +14,7 @@ import (
 	"golang.org/x/term"
 )
 
-var runtimeCtx *bootstrap.Runtime
+var appCtx *app.App
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -27,9 +27,9 @@ func ManageGroupID() string {
 	return manageGroup.ID
 }
 
-// Runtime returns the loaded runtime, or nil for commands without one.
-func Runtime() *bootstrap.Runtime {
-	return runtimeCtx
+// App returns the loaded application for runtime-gated commands.
+func App() *app.App {
+	return appCtx
 }
 
 // PickKernel prompts for an installable kernel.
@@ -84,10 +84,10 @@ func needsRuntime(root, cmd *cobra.Command) bool {
 }
 
 // bootstrapKernel offers an interactive picker when no kernel is installed,
-// installs the pick and loads the runtime with it. Under the shell wrapper
-// (eval'd stdout) an interactive TUI would be captured and lost, so it
-// degrades to a plain hint there.
-func bootstrapKernel() error {
+// installs the pick and continues with the loaded app. Under the shell
+// wrapper (eval'd stdout) an interactive TUI would be captured and lost, so
+// it degrades to a plain hint there.
+func bootstrapKernel(a *app.App) error {
 	if !isInteractive() || os.Getenv("PROXYCTL_WRAPPED") != "" {
 		return fmt.Errorf("no kernel installed, run `proxyctl kernel install` first")
 	}
@@ -95,14 +95,13 @@ func bootstrapKernel() error {
 	if err != nil {
 		return err
 	}
-	if err := pkernel.Install(name); err != nil {
+	if err := a.InstallKernel(name); err != nil {
 		return err
 	}
-	rt, err := bootstrap.LoadRuntime()
-	if err != nil {
+	if _, err := a.Kernel(); err != nil {
 		return err
 	}
-	runtimeCtx = rt
+	appCtx = a
 	log.Ok(fmt.Sprintf("kernel %q installed", name))
 	return nil
 }
@@ -118,14 +117,17 @@ func init() {
 		if !needsRuntime(RootCmd, cmd) {
 			return nil
 		}
-		rt, err := bootstrap.LoadRuntime()
-		if errors.Is(err, config.ErrNoKernel) {
-			return bootstrapKernel()
-		}
+		a, err := app.Load()
 		if err != nil {
 			return err
 		}
-		runtimeCtx = rt
+		if _, err := a.Kernel(); err != nil {
+			if errors.Is(err, config.ErrNoKernel) {
+				return bootstrapKernel(a)
+			}
+			return err
+		}
+		appCtx = a
 		return nil
 	}
 	RootCmd.AddGroup(manageGroup)

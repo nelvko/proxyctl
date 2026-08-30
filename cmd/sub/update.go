@@ -1,7 +1,6 @@
 package sub
 
 import (
-	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/profile"
 	"github.com/spf13/cobra"
 )
@@ -13,7 +12,7 @@ var updateCmd = &cobra.Command{
 	Long:  ``,
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := rootcmd.Runtime().Profiles
+		profiles := profiles()
 		if interactive {
 			return profile.TUI(profiles)
 		}

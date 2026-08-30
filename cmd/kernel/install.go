@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	rootcmd "github.com/nelvko/proxyctl/cmd"
+	"github.com/nelvko/proxyctl/internal/app"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/spf13/cobra"
@@ -20,17 +21,20 @@ installed kernel becomes active.`,
 	Args:      cobra.MaximumNArgs(1),
 	ValidArgs: pkernel.Names(),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := app.Load()
+		if err != nil {
+			return err
+		}
 		name := ""
 		if len(args) == 1 {
 			name = args[0]
 		} else {
-			var err error
 			name, err = rootcmd.PickKernel()
 			if err != nil {
 				return err
 			}
 		}
-		if err := pkernel.Install(name); err != nil {
+		if err := a.InstallKernel(name); err != nil {
 			return err
 		}
 		log.Ok(fmt.Sprintf("kernel %q installed", name))
