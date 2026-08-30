@@ -10,11 +10,6 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-var (
-	AppConfigFile string
-	AppConfigDir  string
-)
-
 // ErrNoKernel means no usable kernel is configured yet.
 var ErrNoKernel = errors.New("no kernel installed")
 
@@ -41,8 +36,16 @@ func (c *AppConfig) ActiveKernel() *KernelConfig {
 	if c == nil {
 		return nil
 	}
+	return c.KernelByName(c.Use)
+}
+
+// KernelByName returns the config of the named kernel, or nil.
+func (c *AppConfig) KernelByName(name string) *KernelConfig {
+	if c == nil {
+		return nil
+	}
 	for i := range c.Kernels {
-		if c.Kernels[i].Name == c.Use {
+		if c.Kernels[i].Name == name {
 			return &c.Kernels[i]
 		}
 	}
@@ -71,12 +74,16 @@ func (c *AppConfig) RemoveKernel(name string) {
 }
 
 func LoadAppConfig() (*AppConfig, error) {
+	path, err := appConfigFile()
+	if err != nil {
+		return nil, err
+	}
 	// No config file yet means no kernel installed — not an error.
-	if _, err := os.Stat(AppConfigFile); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return &AppConfig{}, nil
 	}
 	appV := viper.New()
-	appV.SetConfigFile(AppConfigFile)
+	appV.SetConfigFile(path)
 	if err := appV.ReadInConfig(); err != nil {
 		return nil, err
 	}
@@ -87,7 +94,7 @@ func LoadAppConfig() (*AppConfig, error) {
 	// The config predates the multi-kernel format; refuse loudly instead
 	// of silently seeing zero kernels.
 	if len(cfg.Kernels) == 0 && appV.IsSet("kernel") {
-		return nil, fmt.Errorf("%s uses the old single-kernel format, remove it and run `proxyctl kernel install`", AppConfigFile)
+		return nil, fmt.Errorf("%s uses the old single-kernel format, remove it and run `proxyctl kernel install`", path)
 	}
 	return cfg, nil
 }
@@ -96,23 +103,46 @@ func SaveAppConfig(cfg *AppConfig) error {
 	if cfg == nil {
 		return errors.New("app config is nil")
 	}
-	if err := os.MkdirAll(AppConfigDir, 0o755); err != nil {
-		return err
-	}
-	f, err := os.Create(AppConfigFile)
+	path, err := appConfigFile()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	encoder := yaml.NewEncoder(f)
-	defer encoder.Close()
-
-	return encoder.Encode(cfg)
+	return saveYAMLAtomic(path, cfg)
 }
 
-func init() {
-	cfgDir, _ := os.UserConfigDir()
-	AppConfigDir = filepath.Join(cfgDir, AppName)
-	AppConfigFile = filepath.Join(AppConfigDir, "config.yaml")
+// saveYAMLAtomic writes v to a sibling temp file (0600) and renames it
+// into place, so a crash never truncates the config, and encode/flush
+// errors surface instead of being swallowed by a deferred Close.
+func saveYAMLAtomic(path string, v any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		if tmpName != "" {
+			os.Remove(tmpName)
+		}
+	}()
+
+	encoder := yaml.NewEncoder(tmp)
+	if err := encoder.Encode(v); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := encoder.Close(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	tmpName = ""
+	return nil
 }

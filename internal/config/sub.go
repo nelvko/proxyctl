@@ -2,18 +2,55 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/viper"
-	"go.yaml.in/yaml/v3"
 )
 
-var (
-	SubDir        string
-	subConfigFile string
-)
+// testDir lets in-package tests redirect the config root.
+var testDir string
+
+// dir resolves the proxyctl config root, failing loudly when the user
+// config dir cannot be resolved (no HOME) instead of silently writing to
+// a relative path.
+func dir() (string, error) {
+	if testDir != "" {
+		return testDir, nil
+	}
+	d, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve config dir (is HOME set?): %w", err)
+	}
+	return filepath.Join(d, AppName), nil
+}
+
+func appConfigFile() (string, error) {
+	d, err := dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "config.yaml"), nil
+}
+
+func subConfigFile() (string, error) {
+	d, err := dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "profiles.yaml"), nil
+}
+
+// ProfilesDir returns the directory holding subscription profile files.
+func ProfilesDir() (string, error) {
+	d, err := dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "profiles"), nil
+}
 
 type SubConfig struct {
 	Use      string    `mapstructure:"use"`
@@ -47,18 +84,17 @@ func LoadSubConfig() (*SubConfig, error) {
 	if err := ensureSubConfig(); err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(subConfigFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return &SubConfig{}, nil
-	}
+	path, err := subConfigFile()
 	if err != nil {
 		return nil, err
 	}
-	if info.Size() == 0 {
+	if info, err := os.Stat(path); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
 		return &SubConfig{}, nil
+	} else if err != nil {
+		return nil, err
 	}
 	subV := viper.New()
-	subV.SetConfigFile(subConfigFile)
+	subV.SetConfigFile(path)
 	if err := subV.ReadInConfig(); err != nil {
 		return nil, err
 	}
@@ -73,26 +109,17 @@ func SaveSubConfig(cfg *SubConfig) error {
 	if cfg == nil {
 		return errors.New("sub config is nil")
 	}
-	if err := ensureSubConfig(); err != nil {
-		return err
-	}
-	f, err := os.Create(subConfigFile)
+	path, err := subConfigFile()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	encoder := yaml.NewEncoder(f)
-	defer encoder.Close()
-
-	return encoder.Encode(cfg)
+	return saveYAMLAtomic(path, cfg)
 }
 
 func ensureSubConfig() error {
-	return os.MkdirAll(SubDir, 0o755)
-}
-
-func init() {
-	SubDir = filepath.Join(AppConfigDir, "profiles")
-	subConfigFile = filepath.Join(AppConfigDir, "profiles.yaml")
+	dir, err := ProfilesDir()
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o755)
 }
