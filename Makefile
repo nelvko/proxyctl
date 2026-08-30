@@ -39,7 +39,7 @@ smoke: build-linux ## command-surface smoke in an alpine container
 verify: vet test smoke ## everything that needs no systemd
 
 e2e: build-linux vm ## read-only run on the OrbStack VM
-	orb -m $(VM) bash -c '$(BIN) kernel list; $(BIN) sub list'
+	orb -m $(VM) bash -c '$(BIN) status; $(BIN) kernel list; $(BIN) sub list'
 
 e2e-reset: build-linux vm ## wipe VM state, fresh install + subscription + proxy check
 	orb -m $(VM) bash -c '\
