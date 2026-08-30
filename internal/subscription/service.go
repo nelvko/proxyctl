@@ -1,4 +1,4 @@
-package profile
+package subscription
 
 import (
 	"context"
@@ -28,11 +28,11 @@ var ErrNoActiveProfile = errors.New("no active profile")
 type profile = config.Profile
 
 type Service struct {
-	subConfig *config.SubConfig
+	subConfig *config.SubscriptionConfig
 	kernel    kernel.Kernel
 }
 
-func NewService(subCfg *config.SubConfig, k kernel.Kernel) *Service {
+func NewService(subCfg *config.SubscriptionConfig, k kernel.Kernel) *Service {
 	return &Service{
 		subConfig: subCfg,
 		kernel:    k,
@@ -43,24 +43,24 @@ func (s *Service) List() []profile {
 	return append([]profile(nil), s.subConfig.Profiles...)
 }
 
-func (s *Service) CurrentName() string {
+func (s *Service) ActiveName() string {
 	return s.subConfig.Use
 }
 
-func (s *Service) Add(option *profile) error {
-	if option == nil {
+func (s *Service) Add(draft *profile) error {
+	if draft == nil {
 		return errors.New("profile is nil")
 	}
 
-	u, err := url.Parse(option.URL)
+	u, err := url.Parse(draft.URL)
 	if err != nil {
 		return err
 	}
 
-	if option.Name == "" {
-		option.Name = fmt.Sprintf("%d", time.Now().Unix())
+	if draft.Name == "" {
+		draft.Name = fmt.Sprintf("%d", time.Now().Unix())
 	}
-	if err := s.ValidateName(option.Name); err != nil {
+	if err := s.ValidateName(draft.Name); err != nil {
 		return err
 	}
 
@@ -97,7 +97,7 @@ func (s *Service) Add(option *profile) error {
 			return err
 		}
 	case "http", "https":
-		ctx, cancel := context.WithTimeout(context.Background(), s.downloadTimeout(option))
+		ctx, cancel := context.WithTimeout(context.Background(), s.downloadTimeout(draft))
 		defer cancel()
 		if err := httpx.Download(ctx, u.String(), tmpFile); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -113,27 +113,27 @@ func (s *Service) Add(option *profile) error {
 		return err
 	}
 
-	option.File = filepath.Join(profilesDir, option.Name+".yaml")
+	draft.File = filepath.Join(profilesDir, draft.Name+".yaml")
 	if err := tmpFile.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, option.File); err != nil {
+	if err := os.Rename(tmpName, draft.File); err != nil {
 		return err
 	}
 	tmpName = ""
 
-	s.subConfig.Profiles = append(s.subConfig.Profiles, *option)
+	s.subConfig.Profiles = append(s.subConfig.Profiles, *draft)
 	if err := s.save(); err != nil {
 		return err
 	}
-	log.Ok(fmt.Sprintf("profile %q added successfully", option.Name))
+	log.Ok(fmt.Sprintf("profile %q added successfully", draft.Name))
 
 	// The first profile becomes active automatically.
 	if s.subConfig.Use == "" && len(s.subConfig.Profiles) == 1 {
-		if err := s.Use(option.Name); err != nil {
+		if err := s.Use(draft.Name); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("profile %q activated (first profile)", option.Name))
+		log.Ok(fmt.Sprintf("profile %q activated (first profile)", draft.Name))
 	}
 	return nil
 }
@@ -157,7 +157,7 @@ func (s *Service) Delete(profileName string, force bool) error {
 		return err
 	}
 
-	if current, _ := s.Using(); current.Name == profileName {
+	if current, _ := s.Active(); current.Name == profileName {
 		if !force {
 			return fmt.Errorf("profile %q is currently in use", profileName)
 		}
@@ -187,7 +187,7 @@ func (s *Service) Get(name string) (profile, error) {
 	return s.subConfig.Profiles[i], nil
 }
 
-func (s *Service) Using() (profile, error) {
+func (s *Service) Active() (profile, error) {
 	if s.subConfig.Use == "" {
 		return profile{}, ErrNoActiveProfile
 	}
@@ -292,15 +292,15 @@ func (s *Service) ValidateProfile(profileName string) error {
 	return s.kernel.TestConfig(p.File)
 }
 
-func (s *Service) downloadTimeout(option *profile) time.Duration {
-	if option.Update.Timeout > 0 {
-		return option.Update.Timeout
+func (s *Service) downloadTimeout(draft *profile) time.Duration {
+	if draft.Update.Timeout > 0 {
+		return draft.Update.Timeout
 	}
 	return defaultDownloadTimeout
 }
 
 func (s *Service) save() error {
-	return config.SaveSubConfig(s.subConfig)
+	return config.SaveSubscriptionConfig(s.subConfig)
 }
 
 func editorCommand(file, editor string) (*exec.Cmd, error) {

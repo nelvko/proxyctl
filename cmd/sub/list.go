@@ -3,7 +3,7 @@ package sub
 import (
 	"fmt"
 
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/spf13/cobra"
 )
 
@@ -19,9 +19,9 @@ var lsCmd = &cobra.Command{
 			return err
 		}
 		if interactive {
-			return profile.TUI(profiles)
+			return subscription.TUI(profiles)
 		}
-		current := profiles.CurrentName()
+		current := profiles.ActiveName()
 		for _, p := range profiles.List() {
 			marker := " "
 			if p.Name == current {

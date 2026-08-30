@@ -11,15 +11,15 @@ import (
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/kernel"
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/nelvko/unisvc"
 )
 
 // App is the loaded application state. Zero kernels is a loadable, valid
 // state — lifecycle commands operate on it directly.
 type App struct {
-	Cfg *config.AppConfig
-	Sub *config.SubConfig
+	Cfg          *config.AppConfig
+	Subscription *config.SubscriptionConfig
 }
 
 func Load() (*App, error) {
@@ -27,14 +27,14 @@ func Load() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load app config: %w", err)
 	}
-	sub, err := config.LoadSubConfig()
+	subs, err := config.LoadSubscriptionConfig()
 	if err != nil {
-		return nil, fmt.Errorf("load sub config: %w", err)
+		return nil, fmt.Errorf("load subscription config: %w", err)
 	}
-	return &App{Cfg: cfg, Sub: sub}, nil
+	return &App{Cfg: cfg, Subscription: subs}, nil
 }
 
-// Save persists the app config.
+// SaveConfig persists the app config (not the subscription state).
 func (a *App) Save() error {
 	return config.SaveAppConfig(a.Cfg)
 }
@@ -49,12 +49,12 @@ func (a *App) Kernel() (kernel.Kernel, error) {
 }
 
 // Profiles returns the subscription service bound to the active kernel.
-func (a *App) Profiles() (*profile.Service, error) {
+func (a *App) Profiles() (*subscription.Service, error) {
 	k, err := a.Kernel()
 	if err != nil {
 		return nil, err
 	}
-	return profile.NewService(a.Sub, k), nil
+	return subscription.NewService(a.Subscription, k), nil
 }
 
 // InstallKernel downloads the kernel, installs its user service and
@@ -143,9 +143,9 @@ func (a *App) UseKernel(name string) error {
 	if err != nil {
 		return err
 	}
-	p, err := svc.Using()
+	p, err := svc.Active()
 	switch {
-	case errors.Is(err, profile.ErrNoActiveProfile):
+	case errors.Is(err, subscription.ErrNoActiveProfile):
 		return nil
 	case err != nil:
 		return fmt.Errorf("kernel switched but the current subscription is unusable: %w", err)

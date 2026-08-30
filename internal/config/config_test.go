@@ -82,7 +82,7 @@ func TestLoadAppConfigLegacy(t *testing.T) {
 
 func TestSubConfigRoundTrip(t *testing.T) {
 	useTestDir(t)
-	cfg := &SubConfig{
+	cfg := &SubscriptionConfig{
 		Use: "a",
 		Profiles: []Profile{{
 			Name: "a",
@@ -95,13 +95,13 @@ func TestSubConfigRoundTrip(t *testing.T) {
 			},
 		}},
 	}
-	if err := SaveSubConfig(cfg); err != nil {
-		t.Fatalf("SaveSubConfig() error = %v", err)
+	if err := SaveSubscriptionConfig(cfg); err != nil {
+		t.Fatalf("SaveSubscriptionConfig() error = %v", err)
 	}
 
-	got, err := LoadSubConfig()
+	got, err := LoadSubscriptionConfig()
 	if err != nil {
-		t.Fatalf("LoadSubConfig() error = %v", err)
+		t.Fatalf("LoadSubscriptionConfig() error = %v", err)
 	}
 	if got.Use != "a" || len(got.Profiles) != 1 {
 		t.Fatalf("round-trip mismatch: %+v", got)
@@ -118,10 +118,10 @@ func TestSubConfigRoundTrip(t *testing.T) {
 }
 
 func TestLoadSubConfigEmpty(t *testing.T) {
-	writeTestFile(t, "profiles.yaml", "")
-	got, err := LoadSubConfig()
+	writeTestFile(t, "subscriptions.yaml", "")
+	got, err := LoadSubscriptionConfig()
 	if err != nil {
-		t.Fatalf("LoadSubConfig(empty) error = %v", err)
+		t.Fatalf("LoadSubscriptionConfig(empty) error = %v", err)
 	}
 	if got.Use != "" || len(got.Profiles) != 0 {
 		t.Fatalf("empty file should load as zero value: %+v", got)

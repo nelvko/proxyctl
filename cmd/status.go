@@ -54,8 +54,8 @@ and the current subscription.`,
 		}
 
 		profile := "none"
-		if a.Sub.Use != "" {
-			profile = fmt.Sprintf("%s (%d total)", a.Sub.Use, len(a.Sub.Profiles))
+		if a.Subscription.Use != "" {
+			profile = fmt.Sprintf("%s (%d total)", a.Subscription.Use, len(a.Subscription.Profiles))
 		}
 		fmt.Printf("profile:   %s\n", profile)
 		return nil

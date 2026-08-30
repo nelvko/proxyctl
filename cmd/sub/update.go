@@ -1,7 +1,7 @@
 package sub
 
 import (
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 		if interactive {
-			return profile.TUI(profiles)
+			return subscription.TUI(profiles)
 		}
 		// todo
 		return nil

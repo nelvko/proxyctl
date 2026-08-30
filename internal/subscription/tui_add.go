@@ -1,4 +1,4 @@
-package profile
+package subscription
 
 import (
 	"errors"
@@ -11,19 +11,19 @@ import (
 
 var descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
 
-func initialAddForm(profiles *Service, option *profile) *huh.Form {
+func initialAddForm(profiles *Service, draft *profile) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Source URL").
 				Description(descStyle.Render("Supports http://, https://, and file:// URLs")).
-				Value(&option.URL).
+				Value(&draft.URL).
 				Validate(validateSourceURL),
 			huh.NewInput().
 				Title("Profile Name").
 				Description(descStyle.Render("Optional; defaults to the current Unix timestamp")).
 				Validate(profiles.ValidateName).
-				Value(&option.Name),
+				Value(&draft.Name),
 		),
 	)
 }
@@ -46,8 +46,8 @@ func validateSourceURL(raw string) error {
 	}
 }
 
-func PromptAdd(profiles *Service, option *profile) error {
-	if err := initialAddForm(profiles, option).Run(); err != nil {
+func PromptAdd(profiles *Service, draft *profile) error {
+	if err := initialAddForm(profiles, draft).Run(); err != nil {
 		return err
 	}
 	return nil

@@ -1,7 +1,7 @@
 package sub
 
 import (
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ profile will be test after the editor exits.`,
 			return err
 		}
 		if interactive {
-			return profile.TUI(profiles)
+			return subscription.TUI(profiles)
 		}
 		profileName := args[0]
 		return profiles.Edit(profileName, editor)

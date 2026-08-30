@@ -2,7 +2,7 @@ package sub
 
 import (
 	rootcmd "github.com/nelvko/proxyctl/cmd"
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/spf13/cobra"
 )
 
@@ -18,14 +18,14 @@ Run without a subcommand to open the TUI.`,
 		if err != nil {
 			return err
 		}
-		return profile.TUI(svc)
+		return subscription.TUI(svc)
 	},
 }
 
 var interactive bool
 
 // profiles returns the subscription service bound to the active kernel.
-func profiles() (*profile.Service, error) {
+func profiles() (*subscription.Service, error) {
 	return rootcmd.App().Profiles()
 }
 

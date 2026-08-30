@@ -6,7 +6,7 @@ import (
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/log"
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/spf13/cobra"
 )
 
@@ -32,21 +32,21 @@ profile, it becomes active automatically.`,
 			return err
 		}
 		if interactive {
-			if err := profile.PromptAdd(profiles, option); err != nil {
+			if err := subscription.PromptAdd(profiles, draft); err != nil {
 				return err
 			}
 		} else {
-			option.URL = args[0]
+			draft.URL = args[0]
 		}
-		if err := profiles.Add(option); err != nil {
+		if err := profiles.Add(draft); err != nil {
 			return err
 		}
 		// The first profile is activated by Add itself.
-		if use && profiles.CurrentName() != option.Name {
-			if err := profiles.Use(option.Name); err != nil {
+		if use && profiles.ActiveName() != draft.Name {
+			if err := profiles.Use(draft.Name); err != nil {
 				return err
 			}
-			log.Ok(fmt.Sprintf("profile %q used successfully", option.Name))
+			log.Ok(fmt.Sprintf("profile %q used successfully", draft.Name))
 		}
 		return nil
 
@@ -54,8 +54,8 @@ profile, it becomes active automatically.`,
 }
 
 var (
-	use    bool
-	option = &config.Profile{
+	use   bool
+	draft = &config.Profile{
 		Update: config.UpdateConfig{
 			Timeout: 10 * time.Second,
 		},
@@ -64,8 +64,8 @@ var (
 
 func init() {
 	subCmd.AddCommand(addCmd)
-	addCmd.Flags().StringVarP(&option.Name, "name", "n", option.Name, "Profile name; defaults to the current Unix timestamp")
+	addCmd.Flags().StringVarP(&draft.Name, "name", "n", draft.Name, "Profile name; defaults to the current Unix timestamp")
 	addCmd.Flags().BoolVarP(&use, "use", "u", use, "Use the new profile after adding it")
-	addCmd.Flags().DurationVarP(&option.Update.Timeout, "timeout", "t", option.Update.Timeout, "HTTP(S) download timeout")
+	addCmd.Flags().DurationVarP(&draft.Update.Timeout, "timeout", "t", draft.Update.Timeout, "HTTP(S) download timeout")
 	// todo updateConfig
 }

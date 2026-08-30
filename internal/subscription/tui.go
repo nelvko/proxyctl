@@ -1,4 +1,4 @@
-package profile
+package subscription
 
 import (
 	"errors"
@@ -110,7 +110,7 @@ type model struct {
 	list          list.Model
 
 	form        *huh.Form
-	formOption  *config.Profile
+	formDraft   *config.Profile
 	formFocused bool
 
 	styles styles
@@ -153,7 +153,7 @@ func initialModel(profiles *Service) model {
 		}
 	}
 	m.list.AdditionalFullHelpKeys = m.list.AdditionalShortHelpKeys
-	m.list.Title = "use: " + profiles.CurrentName()
+	m.list.Title = "use: " + profiles.ActiveName()
 	m.list.SetStatusBarItemName("profile", "profiles")
 	m.list.StatusMessageLifetime = statusMessageLifetime
 	return m
@@ -182,7 +182,7 @@ func (m *model) successMessage(message string) tea.Cmd {
 func (m *model) resetAddForm() {
 	m.formFocused = false
 	m.form = nil
-	m.formOption = nil
+	m.formDraft = nil
 }
 
 func (m *model) cancelForm() tea.Cmd {
@@ -191,15 +191,15 @@ func (m *model) cancelForm() tea.Cmd {
 }
 
 func (m *model) openAddForm() tea.Cmd {
-	option := &config.Profile{
+	draft := &config.Profile{
 		Update: config.UpdateConfig{
 			Timeout: 10 * time.Second,
 		},
 	}
-	form := initialAddForm(m.profiles, option).WithShowHelp(false)
+	form := initialAddForm(m.profiles, draft).WithShowHelp(false)
 	form.SubmitCmd = func() tea.Msg { return addSubmittedMsg{} }
 
-	m.formOption = option
+	m.formDraft = draft
 	m.form = form
 	m.formFocused = true
 	return form.Init()
@@ -219,18 +219,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.styles = newStyles(msg.IsDark())
 		return m, nil
 	case addSubmittedMsg:
-		if m.formOption == nil {
+		if m.formDraft == nil {
 			return m, m.errorMessage("add form is not ready")
 		}
-		option := *m.formOption
+		draft := *m.formDraft
 		m.resetAddForm()
 		return m, tea.Batch(
 			m.pendingMessage("wait a moment..."),
 			m.list.StartSpinner(),
 			func() tea.Msg {
 				// Add auto-activates the first profile.
-				err := m.profiles.Add(&option)
-				return addFinishedMsg{name: option.Name, err: err}
+				err := m.profiles.Add(&draft)
+				return addFinishedMsg{name: draft.Name, err: err}
 			},
 		)
 	case editorFinishedMsg:
@@ -246,7 +246,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, m.errorMessage(msg.err.Error())
 		}
-		m.list.Title = "use: " + m.profiles.CurrentName()
+		m.list.Title = "use: " + m.profiles.ActiveName()
 		return m, m.successMessage("used")
 	case addFinishedMsg:
 		m.list.StopSpinner()
@@ -255,7 +255,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		setItemsCmd := m.list.SetItems(listItemsFromProfiles(m.profiles))
 		m.list.Select(len(m.profiles.List()) - 1)
-		m.list.Title = "use: " + m.profiles.CurrentName()
+		m.list.Title = "use: " + m.profiles.ActiveName()
 		return m, tea.Batch(setItemsCmd, m.successMessage("Added "+msg.name))
 	}
 
@@ -299,7 +299,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 				return m.errorMessage(err.Error())
 			}
 			m.list.RemoveItem(m.list.GlobalIndex())
-			m.list.Title = "use: " + m.profiles.CurrentName()
+			m.list.Title = "use: " + m.profiles.ActiveName()
 			m.lastPress.d = time.Now()
 			return m.successMessage("Deleted " + selectedItem.Name)
 		case key.Matches(msg, keys.Use):

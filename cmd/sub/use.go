@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/nelvko/proxyctl/internal/log"
-	"github.com/nelvko/proxyctl/internal/profile"
+	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ var useCmd = &cobra.Command{
 			return err
 		}
 		if interactive {
-			return profile.TUI(profiles)
+			return subscription.TUI(profiles)
 		}
 		profileName := args[0]
 		if err := profiles.Use(profileName); err != nil {

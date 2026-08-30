@@ -35,12 +35,12 @@ func appConfigFile() (string, error) {
 	return filepath.Join(d, "config.yaml"), nil
 }
 
-func subConfigFile() (string, error) {
+func subscriptionConfigFile() (string, error) {
 	d, err := dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "profiles.yaml"), nil
+	return filepath.Join(d, "subscriptions.yaml"), nil
 }
 
 // ProfilesDir returns the directory holding subscription profile files.
@@ -52,7 +52,7 @@ func ProfilesDir() (string, error) {
 	return filepath.Join(d, "profiles"), nil
 }
 
-type SubConfig struct {
+type SubscriptionConfig struct {
 	Use      string    `mapstructure:"use"`
 	Profiles []Profile `mapstructure:"profiles"`
 }
@@ -80,16 +80,16 @@ type UpdateConfig struct {
 	SkipCert bool
 }
 
-func LoadSubConfig() (*SubConfig, error) {
+func LoadSubscriptionConfig() (*SubscriptionConfig, error) {
 	if err := ensureProfilesDir(); err != nil {
 		return nil, err
 	}
-	path, err := subConfigFile()
+	path, err := subscriptionConfigFile()
 	if err != nil {
 		return nil, err
 	}
 	if info, err := os.Stat(path); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
-		return &SubConfig{}, nil
+		return &SubscriptionConfig{}, nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -98,18 +98,18 @@ func LoadSubConfig() (*SubConfig, error) {
 	if err := subV.ReadInConfig(); err != nil {
 		return nil, err
 	}
-	cfg := &SubConfig{}
+	cfg := &SubscriptionConfig{}
 	if err := subV.Unmarshal(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
-func SaveSubConfig(cfg *SubConfig) error {
+func SaveSubscriptionConfig(cfg *SubscriptionConfig) error {
 	if cfg == nil {
-		return errors.New("sub config is nil")
+		return errors.New("subscription config is nil")
 	}
-	path, err := subConfigFile()
+	path, err := subscriptionConfigFile()
 	if err != nil {
 		return err
 	}
