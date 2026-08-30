@@ -17,10 +17,10 @@ const (
 
 type Kernel interface {
 	unisvc.Service
-	Manager
+	Adapter
 }
 
-type Manager interface {
+type Adapter interface {
 	// ConfigFile returns the kernel's active config file path.
 	ConfigFile() string
 	// ConfigFormat returns the subscription format the kernel understands.
@@ -37,15 +37,15 @@ const (
 
 type descriptor struct {
 	format ConfigFormat
-	// ready reports whether the kernel is implemented.
-	ready bool
+	// implemented reports whether the kernel is implemented.
+	implemented bool
 }
 
 // names lists the known kernels, best-first.
 var names = []string{mihomo, clash, singbox}
 
 var registry = map[string]descriptor{
-	mihomo:  {format: FormatClash, ready: true},
+	mihomo:  {format: FormatClash, implemented: true},
 	clash:   {format: FormatClash},
 	singbox: {format: FormatSingBox},
 }
@@ -55,15 +55,15 @@ func Names() []string {
 	return append([]string(nil), names...)
 }
 
-// ReadyNames returns the implemented kernel names.
-func ReadyNames() []string {
-	ready := make([]string, 0, len(names))
+// ImplementedNames returns the implemented kernel names.
+func ImplementedNames() []string {
+	implemented := make([]string, 0, len(names))
 	for _, name := range names {
-		if registry[name].ready {
-			ready = append(ready, name)
+		if registry[name].implemented {
+			implemented = append(implemented, name)
 		}
 	}
-	return ready
+	return implemented
 }
 
 // Known reports whether name is a registered kernel.
@@ -72,9 +72,9 @@ func Known(name string) bool {
 	return ok
 }
 
-// Ready reports whether the kernel is implemented.
-func Ready(name string) bool {
-	return registry[name].ready
+// Implemented reports whether the kernel is implemented.
+func Implemented(name string) bool {
+	return registry[name].implemented
 }
 
 // FormatOf returns the config format of a known kernel.
@@ -84,11 +84,11 @@ func FormatOf(name string) ConfigFormat {
 
 // Entry describes a kernel for listing.
 type Entry struct {
-	Name      string
-	Format    ConfigFormat
-	Installed bool
-	Active    bool
-	Ready     bool
+	Name        string
+	Format      ConfigFormat
+	Installed   bool
+	Active      bool
+	Implemented bool
 }
 
 // List builds the kernel overview from cfg without touching the system.
@@ -96,7 +96,7 @@ func List(cfg *config.AppConfig) []Entry {
 	entries := make([]Entry, 0, len(names))
 	for _, name := range names {
 		desc := registry[name]
-		entry := Entry{Name: name, Format: desc.format, Ready: desc.ready}
+		entry := Entry{Name: name, Format: desc.format, Implemented: desc.implemented}
 		if cfg.KernelByName(name) != nil {
 			entry.Installed = true
 			entry.Active = cfg.Use == name

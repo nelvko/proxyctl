@@ -3,8 +3,8 @@ package sub
 import (
 	"fmt"
 
-	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/subscription"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +26,7 @@ var useCmd = &cobra.Command{
 		if err := profiles.Use(profileName); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("profile %q used successfully", profileName))
+		ui.Ok(fmt.Sprintf("profile %q used successfully", profileName))
 		return nil
 
 	},

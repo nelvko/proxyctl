@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/nelvko/proxyctl/internal/app"
-	"github.com/nelvko/proxyctl/internal/log"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +24,7 @@ the binary and config directories, and its config entry.`,
 		if err := a.UninstallKernel(args[0]); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("kernel %q uninstalled", args[0]))
+		ui.Ok(fmt.Sprintf("kernel %q uninstalled", args[0]))
 		return nil
 	},
 }
@@ -53,7 +53,7 @@ The service is restarted if it was running.`,
 		if name == "" {
 			name = "active kernel"
 		}
-		log.Ok(fmt.Sprintf("%s upgraded", name))
+		ui.Ok(fmt.Sprintf("%s upgraded", name))
 		return nil
 	},
 }

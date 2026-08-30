@@ -74,10 +74,10 @@ type UpdateConfig struct {
 	Interval time.Duration `mapstructure:"interval"`
 
 	Cron      string `mapstructure:"cron"`
-	UserAgent string `mapstructure:"UserAgent"`
+	UserAgent string `mapstructure:"useragent"`
 
-	UseProxy bool
-	SkipCert bool
+	UseProxy bool `mapstructure:"useproxy"`
+	SkipCert bool `mapstructure:"skipcert"`
 }
 
 func LoadSubscriptionConfig() (*SubscriptionConfig, error) {

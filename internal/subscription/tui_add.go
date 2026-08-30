@@ -22,7 +22,7 @@ func initialAddForm(profiles *Service, draft *profile) *huh.Form {
 			huh.NewInput().
 				Title("Profile Name").
 				Description(descStyle.Render("Optional; defaults to the current Unix timestamp")).
-				Validate(profiles.ValidateName).
+				Validate(profiles.CheckNameAvailable).
 				Value(&draft.Name),
 		),
 	)

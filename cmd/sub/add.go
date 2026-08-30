@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/nelvko/proxyctl/internal/config"
-	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/subscription"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +46,7 @@ profile, it becomes active automatically.`,
 			if err := profiles.Use(draft.Name); err != nil {
 				return err
 			}
-			log.Ok(fmt.Sprintf("profile %q used successfully", draft.Name))
+			ui.Ok(fmt.Sprintf("profile %q used successfully", draft.Name))
 		}
 		return nil
 

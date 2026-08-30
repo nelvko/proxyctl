@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/nelvko/proxyctl/internal/app"
-	"github.com/nelvko/proxyctl/internal/log"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,10 +26,10 @@ subscription is re-applied on the new kernel.`,
 			return err
 		}
 		if a.Subscription.Use == "" {
-			log.Ok(fmt.Sprintf("kernel %q used (no active subscription, add one with `proxyctl sub add`)", args[0]))
+			ui.Ok(fmt.Sprintf("kernel %q used (no active subscription, add one with `proxyctl sub add`)", args[0]))
 			return nil
 		}
-		log.Ok(fmt.Sprintf("kernel %q used successfully", args[0]))
+		ui.Ok(fmt.Sprintf("kernel %q used successfully", args[0]))
 		return nil
 	},
 }

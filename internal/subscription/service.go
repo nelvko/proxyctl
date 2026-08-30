@@ -16,7 +16,7 @@ import (
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/httpx"
 	"github.com/nelvko/proxyctl/internal/kernel"
-	"github.com/nelvko/proxyctl/internal/log"
+	"github.com/nelvko/proxyctl/internal/ui"
 )
 
 const defaultDownloadTimeout = 10 * time.Second
@@ -60,7 +60,7 @@ func (s *Service) Add(draft *profile) error {
 	if draft.Name == "" {
 		draft.Name = fmt.Sprintf("%d", time.Now().Unix())
 	}
-	if err := s.ValidateName(draft.Name); err != nil {
+	if err := s.CheckNameAvailable(draft.Name); err != nil {
 		return err
 	}
 
@@ -126,19 +126,19 @@ func (s *Service) Add(draft *profile) error {
 	if err := s.save(); err != nil {
 		return err
 	}
-	log.Ok(fmt.Sprintf("profile %q added successfully", draft.Name))
+	ui.Ok(fmt.Sprintf("profile %q added successfully", draft.Name))
 
 	// The first profile becomes active automatically.
 	if s.subConfig.Use == "" && len(s.subConfig.Profiles) == 1 {
 		if err := s.Use(draft.Name); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("profile %q activated (first profile)", draft.Name))
+		ui.Ok(fmt.Sprintf("profile %q activated (first profile)", draft.Name))
 	}
 	return nil
 }
 
-func (s *Service) ValidateName(name string) error {
+func (s *Service) CheckNameAvailable(name string) error {
 	if name == "" {
 		return nil
 	}

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 	"time"
 
 	"github.com/nelvko/proxyctl/internal/env"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +48,7 @@ current shell; the kernel config decides the actual address.`,
 		}
 
 		printShell(e.Export(env.Shell()))
-		fmt.Fprintf(os.Stderr, "😼 proxy on: %s\n", firstNonEmpty(e.HTTP, e.All))
+		ui.Err(fmt.Sprintf("proxy on: %s", firstNonEmpty(e.HTTP, e.All)))
 		return nil
 	},
 }

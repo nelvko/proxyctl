@@ -6,7 +6,7 @@ import (
 	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/app"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
-	"github.com/nelvko/proxyctl/internal/log"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +19,7 @@ var installCmd = &cobra.Command{
 Run without an argument to pick interactively. The first
 installed kernel becomes active.`,
 	Args:      cobra.MaximumNArgs(1),
-	ValidArgs: pkernel.Names(),
+	ValidArgs: pkernel.ImplementedNames(),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		a, err := app.Load()
 		if err != nil {
@@ -37,7 +37,7 @@ installed kernel becomes active.`,
 		if err := a.InstallKernel(name); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("kernel %q installed", name))
+		ui.Ok(fmt.Sprintf("kernel %q installed", name))
 		return nil
 	},
 }

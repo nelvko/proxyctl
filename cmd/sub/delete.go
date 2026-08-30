@@ -3,8 +3,8 @@ package sub
 import (
 	"fmt"
 
-	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/subscription"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +29,7 @@ var delCmd = &cobra.Command{
 		if err := profiles.Delete(profileName, force); err != nil {
 			return err
 		}
-		log.Ok(fmt.Sprintf("profile %q deleted successfully", profileName))
+		ui.Ok(fmt.Sprintf("profile %q deleted successfully", profileName))
 		return nil
 	},
 }

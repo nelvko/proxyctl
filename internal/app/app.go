@@ -61,9 +61,9 @@ func (a *App) Profiles() (*subscription.Service, error) {
 // registers it. The first installed kernel becomes active.
 func (a *App) InstallKernel(name string) error {
 	if !kernel.Known(name) {
-		return fmt.Errorf("unknown kernel %q, available: %s", name, strings.Join(kernel.Names(), ", "))
+		return fmt.Errorf("unknown kernel %q, implemented: %s", name, strings.Join(kernel.ImplementedNames(), ", "))
 	}
-	if !kernel.Ready(name) {
+	if !kernel.Implemented(name) {
 		return fmt.Errorf("kernel %q is not supported yet", name)
 	}
 

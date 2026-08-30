@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/nelvko/proxyctl/internal/env"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +32,7 @@ environment in sync:
 			lines = e.Unset(env.Shell())
 		}
 		printShell(lines)
-		fmt.Fprintln(os.Stderr, "😼 proxy env")
+		ui.Err("proxy env")
 		return nil
 	},
 }

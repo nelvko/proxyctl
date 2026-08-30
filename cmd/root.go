@@ -9,7 +9,7 @@ import (
 	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/config"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
-	"github.com/nelvko/proxyctl/internal/log"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -37,12 +37,12 @@ func PickKernel() (string, error) {
 	if !isInteractive() {
 		return "", fmt.Errorf("no terminal available, run `proxyctl kernel install <name>` instead")
 	}
-	ready := pkernel.ReadyNames()
-	if len(ready) == 0 {
+	implemented := pkernel.ImplementedNames()
+	if len(implemented) == 0 {
 		return "", errors.New("no installable kernel")
 	}
-	options := make([]huh.Option[string], 0, len(ready))
-	for _, name := range ready {
+	options := make([]huh.Option[string], 0, len(implemented))
+	for _, name := range implemented {
 		options = append(options, huh.NewOption(string(pkernel.FormatOf(name))+" config · "+name, name))
 	}
 
@@ -83,11 +83,11 @@ func needsRuntime(root, cmd *cobra.Command) bool {
 	return cmd != root
 }
 
-// bootstrapKernel offers an interactive picker when no kernel is installed,
+// ensureKernel offers an interactive picker when no kernel is installed,
 // installs the pick and continues with the loaded app. Under the shell
 // wrapper (eval'd stdout) an interactive TUI would be captured and lost, so
 // it degrades to a plain hint there.
-func bootstrapKernel(a *app.App) error {
+func ensureKernel(a *app.App) error {
 	if !isInteractive() || os.Getenv("PROXYCTL_WRAPPED") != "" {
 		return fmt.Errorf("no kernel installed, run `proxyctl kernel install` first")
 	}
@@ -102,7 +102,7 @@ func bootstrapKernel(a *app.App) error {
 		return err
 	}
 	appState = a
-	log.Ok(fmt.Sprintf("kernel %q installed", name))
+	ui.Ok(fmt.Sprintf("kernel %q installed", name))
 	return nil
 }
 
@@ -123,7 +123,7 @@ func init() {
 		}
 		if _, err := a.Kernel(); err != nil {
 			if errors.Is(err, config.ErrNoKernel) {
-				return bootstrapKernel(a)
+				return ensureKernel(a)
 			}
 			return err
 		}

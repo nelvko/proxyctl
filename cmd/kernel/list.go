@@ -28,7 +28,7 @@ var listCmd = &cobra.Command{
 				state = "installed, active"
 			case e.Installed:
 				state = "installed"
-			case e.Ready:
+			case e.Implemented:
 				state = "available"
 			}
 			if e.Active {
