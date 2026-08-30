@@ -7,7 +7,7 @@ import (
 	"net/http"
 	URL "net/url"
 	"os"
-	"path"
+	"strings"
 )
 
 // GhProxy returns the URL of the GitHub proxy if the GITHUB_PROXY environment variable is set,
@@ -25,7 +25,9 @@ func GhProxy(raw string) string {
 	if err != nil {
 		return raw
 	}
-	ghProxyURL.Path = path.Join(ghProxyURL.Path, rawURL.String())
+	// Plain concatenation, not path.Join: the target URL must stay verbatim
+	// (Join would collapse https:// to https:/).
+	ghProxyURL.Path = strings.TrimSuffix(ghProxyURL.Path, "/") + "/" + rawURL.String()
 	return ghProxyURL.String()
 }
 
