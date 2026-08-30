@@ -1,0 +1,8 @@
+mixed-port: 7890
+mode: rule
+log-level: info
+dns:
+  enable: true
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
