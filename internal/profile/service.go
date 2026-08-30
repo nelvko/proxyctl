@@ -21,6 +21,10 @@ import (
 
 const defaultDownloadTimeout = 10 * time.Second
 
+// ErrNoActiveProfile means no subscription has been chosen yet — a normal
+// state, unlike a dangling Use pointing at a deleted profile.
+var ErrNoActiveProfile = errors.New("no active profile")
+
 type profile = config.Profile
 
 type Service struct {
@@ -36,23 +40,14 @@ func NewService(subCfg *config.SubConfig, k kernel.Kernel) *Service {
 }
 
 func (s *Service) List() []profile {
-	if s == nil || s.subConfig == nil {
-		return nil
-	}
 	return append([]profile(nil), s.subConfig.Profiles...)
 }
 
 func (s *Service) CurrentName() string {
-	if s == nil || s.subConfig == nil {
-		return ""
-	}
 	return s.subConfig.Use
 }
 
 func (s *Service) Add(option *profile) error {
-	if s == nil {
-		return errors.New("profile service is nil")
-	}
 	if option == nil {
 		return errors.New("profile is nil")
 	}
@@ -71,10 +66,14 @@ func (s *Service) Add(option *profile) error {
 
 	// Create the temp file next to its destination: renaming across
 	// filesystems (/tmp is often tmpfs) fails with EXDEV.
-	if err := os.MkdirAll(config.SubDir, 0o755); err != nil {
+	profilesDir, err := config.ProfilesDir()
+	if err != nil {
 		return err
 	}
-	tmpFile, err := os.CreateTemp(config.SubDir, ".profile-*")
+	if err := os.MkdirAll(profilesDir, 0o755); err != nil {
+		return err
+	}
+	tmpFile, err := os.CreateTemp(profilesDir, ".profile-*")
 	if err != nil {
 		return err
 	}
@@ -114,7 +113,7 @@ func (s *Service) Add(option *profile) error {
 		return err
 	}
 
-	option.File = filepath.Join(config.SubDir, option.Name+".yaml")
+	option.File = filepath.Join(profilesDir, option.Name+".yaml")
 	if err := tmpFile.Close(); err != nil {
 		return err
 	}
@@ -127,13 +126,17 @@ func (s *Service) Add(option *profile) error {
 	if err := s.save(); err != nil {
 		return err
 	}
-
 	log.Ok(fmt.Sprintf("profile %q added successfully", option.Name))
+
+	// The first profile becomes active automatically.
+	if s.subConfig.Use == "" && len(s.subConfig.Profiles) == 1 {
+		return s.Use(option.Name)
+	}
 	return nil
 }
 
 func (s *Service) ValidateName(name string) error {
-	if s == nil || name == "" {
+	if name == "" {
 		return nil
 	}
 	ok := slices.ContainsFunc(s.subConfig.Profiles, func(p profile) bool {
@@ -146,10 +149,6 @@ func (s *Service) ValidateName(name string) error {
 }
 
 func (s *Service) Delete(profileName string, force bool) error {
-	if s == nil {
-		return errors.New("profile service is nil")
-	}
-
 	tgt, err := s.Get(profileName)
 	if err != nil {
 		return err
@@ -176,10 +175,6 @@ func (s *Service) Delete(profileName string, force bool) error {
 }
 
 func (s *Service) Get(name string) (profile, error) {
-	if s == nil {
-		return profile{}, errors.New("profile service is nil")
-	}
-
 	i := slices.IndexFunc(s.subConfig.Profiles, func(p profile) bool {
 		return p.Name == name
 	})
@@ -190,11 +185,8 @@ func (s *Service) Get(name string) (profile, error) {
 }
 
 func (s *Service) Using() (profile, error) {
-	if s == nil {
-		return profile{}, errors.New("profile service is nil")
-	}
 	if s.subConfig.Use == "" {
-		return profile{}, errors.New("no active profile")
+		return profile{}, ErrNoActiveProfile
 	}
 	p, err := s.Get(s.subConfig.Use)
 	if err != nil {
@@ -204,10 +196,6 @@ func (s *Service) Using() (profile, error) {
 }
 
 func (s *Service) Use(profileName string) error {
-	if s == nil {
-		return errors.New("profile service is nil")
-	}
-
 	i := slices.IndexFunc(s.subConfig.Profiles, func(p profile) bool {
 		return p.Name == profileName
 	})
@@ -221,27 +209,52 @@ func (s *Service) Use(profileName string) error {
 		return err
 	}
 
-	bytes, err := os.ReadFile(useFile)
+	newBytes, err := os.ReadFile(useFile)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(kernelCfg, bytes, 0o666); err != nil {
+	// Keep the old bytes so a failed restart can restore them — otherwise
+	// the kernel runs the new subscription while profiles.yaml still
+	// points at the old one.
+	old, oldErr := os.ReadFile(kernelCfg)
+	if err := os.WriteFile(kernelCfg, newBytes, 0o644); err != nil {
 		return err
 	}
 
-	if err := s.kernel.Restart(); err != nil {
+	if err := s.commitUse(kernelCfg, old, oldErr); err != nil {
 		return err
-	}
-	active, err := s.kernel.IsActive()
-	if err != nil {
-		return err
-	}
-	if !active {
-		return errors.New("kernel failed to become active after restart")
 	}
 
 	s.subConfig.Use = profileName
-	return s.save()
+	if err := s.save(); err != nil {
+		return fmt.Errorf("kernel switched but failed to persist subscription state: %w", err)
+	}
+	return nil
+}
+
+// commitUse restarts the kernel and verifies it came back up, rolling the
+// kernel config back on failure.
+func (s *Service) commitUse(kernelCfg string, old []byte, oldErr error) error {
+	var switchErr error
+	if err := s.kernel.Restart(); err != nil {
+		switchErr = err
+	} else if active, err := s.kernel.IsActive(); err != nil {
+		switchErr = err
+	} else if !active {
+		switchErr = errors.New("kernel failed to become active after restart")
+	}
+	if switchErr == nil {
+		return nil
+	}
+
+	if oldErr != nil {
+		return fmt.Errorf("switch failed: %v (kernel config left switched; previous config unreadable)", switchErr)
+	}
+	if err := os.WriteFile(kernelCfg, old, 0o644); err == nil {
+		_ = s.kernel.Restart()
+		return fmt.Errorf("switch failed: %v (kernel config restored)", switchErr)
+	}
+	return fmt.Errorf("switch failed: %v (kernel config left switched; restore %s manually)", switchErr, kernelCfg)
 }
 
 func (s *Service) Edit(profileName, editor string) error {
@@ -282,9 +295,6 @@ func (s *Service) downloadTimeout(option *profile) time.Duration {
 }
 
 func (s *Service) save() error {
-	if s == nil || s.subConfig == nil {
-		return errors.New("sub config is nil")
-	}
 	return config.SaveSubConfig(s.subConfig)
 }
 

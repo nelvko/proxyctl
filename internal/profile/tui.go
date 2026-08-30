@@ -228,10 +228,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingMessage("wait a moment..."),
 			m.list.StartSpinner(),
 			func() tea.Msg {
+				// Add auto-activates the first profile.
 				err := m.profiles.Add(&option)
-				if err == nil && m.profiles.CurrentName() == "" && len(m.profiles.List()) == 1 {
-					err = m.profiles.Use(option.Name)
-				}
 				return addFinishedMsg{name: option.Name, err: err}
 			},
 		)

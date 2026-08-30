@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/log"
 	"github.com/nelvko/proxyctl/internal/profile"
@@ -28,7 +27,7 @@ The profile is validated before it is saved. If this is the first
 profile, it becomes active automatically.`,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles := rootcmd.Runtime().Profiles
+		profiles := profiles()
 		if interactive {
 			if err := profile.PromptAdd(profiles, option); err != nil {
 				return err
@@ -39,7 +38,8 @@ profile, it becomes active automatically.`,
 		if err := profiles.Add(option); err != nil {
 			return err
 		}
-		if use || (profiles.CurrentName() == "" && len(profiles.List()) == 1) {
+		// The first profile is activated by Add itself.
+		if use && profiles.CurrentName() != option.Name {
 			if err := profiles.Use(option.Name); err != nil {
 				return err
 			}
