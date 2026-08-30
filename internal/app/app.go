@@ -166,13 +166,13 @@ func (a *App) UninstallKernel(name string) error {
 	}
 	if k, err := kernel.New(kcfg); err == nil {
 		_ = k.Stop()
-		if err := k.UnInstall(); err != nil {
+		if err := k.Uninstall(); err != nil {
 			return err
 		}
 	} else {
 		// Kernels we can no longer construct still get their stale unit
 		// removed.
-		_ = unisvc.New(kcfg.Name, unisvc.WithScope(unisvc.ScopeUser)).UnInstall()
+		_ = unisvc.New(kcfg.Name, unisvc.WithScope(unisvc.ScopeUser)).Uninstall()
 	}
 	kernel.RemoveKernelFiles(*kcfg)
 
@@ -199,19 +199,19 @@ func (a *App) UpgradeKernel(name string) error {
 		return err
 	}
 
-	wasActive := false
+	wasRunning := false
 	if a.Cfg.Use == name {
 		on, err := k.IsActive()
 		if err != nil {
 			return err
 		}
-		wasActive = on
+		wasRunning = on
 	}
 
 	if err := kernel.Download(k, kcfg.Bin); err != nil {
 		return err
 	}
-	if wasActive {
+	if wasRunning {
 		return k.Restart()
 	}
 	return nil

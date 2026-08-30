@@ -21,9 +21,9 @@ type ProxyEnv struct {
 
 const noProxyValue = "localhost,127.0.0.1,::1,.local"
 
-// kernelConfig is the subset of a clash-family kernel config that
+// inboundConfig is the subset of a clash-family kernel config that
 // determines the proxy endpoints.
-type kernelConfig struct {
+type inboundConfig struct {
 	MixedPort      int      `yaml:"mixed-port"`
 	Port           int      `yaml:"port"`
 	SocksPort      int      `yaml:"socks-port"`
@@ -39,7 +39,7 @@ func Resolve(configFile string) (ProxyEnv, error) {
 	if err != nil {
 		return ProxyEnv{}, fmt.Errorf("read kernel config: %w", err)
 	}
-	var kc kernelConfig
+	var kc inboundConfig
 	if err := yaml.Unmarshal(raw, &kc); err != nil {
 		return ProxyEnv{}, fmt.Errorf("parse kernel config: %w", err)
 	}
@@ -68,7 +68,7 @@ func Resolve(configFile string) (ProxyEnv, error) {
 	return e, nil
 }
 
-func (kc kernelConfig) httpPort() int {
+func (kc inboundConfig) httpPort() int {
 	if kc.MixedPort > 0 {
 		return kc.MixedPort
 	}
@@ -78,7 +78,7 @@ func (kc kernelConfig) httpPort() int {
 	return 0
 }
 
-func (kc kernelConfig) socksPort() int {
+func (kc inboundConfig) socksPort() int {
 	if kc.MixedPort > 0 {
 		return kc.MixedPort
 	}
@@ -88,7 +88,7 @@ func (kc kernelConfig) socksPort() int {
 	return 0
 }
 
-func (kc kernelConfig) host() string {
+func (kc inboundConfig) host() string {
 	switch {
 	case !kc.AllowLan:
 		return "127.0.0.1"

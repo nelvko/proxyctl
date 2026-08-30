@@ -24,11 +24,11 @@ the proxy environment to stdout.`,
 			return err
 		}
 
-		active, err := k.IsActive()
+		running, err := k.IsActive()
 		if err != nil {
 			return err
 		}
-		if active {
+		if running {
 			if err := k.Stop(); err != nil {
 				return err
 			}

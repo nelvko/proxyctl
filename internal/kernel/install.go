@@ -68,16 +68,16 @@ func Download(k Kernel, bin string) error {
 // unit so re-running install converges to the new spec instead of failing.
 // A service that was running before is restarted afterwards.
 func InstallService(k Kernel, spec *unisvc.Spec) error {
-	wasActive := false
+	wasRunning := false
 	on, err := k.IsActive()
 	if err != nil {
 		return err
 	}
-	wasActive = on
+	wasRunning = on
 
 	err = k.Install(spec)
 	if errors.Is(err, unisvc.ErrAlreadyInstalled) {
-		if err := k.UnInstall(); err != nil {
+		if err := k.Uninstall(); err != nil {
 			return fmt.Errorf("reinstall service: %w", err)
 		}
 		err = k.Install(spec)
@@ -85,7 +85,7 @@ func InstallService(k Kernel, spec *unisvc.Spec) error {
 	if err != nil {
 		return err
 	}
-	if wasActive {
+	if wasRunning {
 		return k.Start()
 	}
 	return nil

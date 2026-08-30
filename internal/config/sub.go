@@ -81,7 +81,7 @@ type UpdateConfig struct {
 }
 
 func LoadSubConfig() (*SubConfig, error) {
-	if err := ensureSubConfig(); err != nil {
+	if err := ensureProfilesDir(); err != nil {
 		return nil, err
 	}
 	path, err := subConfigFile()
@@ -116,7 +116,7 @@ func SaveSubConfig(cfg *SubConfig) error {
 	return saveYAMLAtomic(path, cfg)
 }
 
-func ensureSubConfig() error {
+func ensureProfilesDir() error {
 	dir, err := ProfilesDir()
 	if err != nil {
 		return err

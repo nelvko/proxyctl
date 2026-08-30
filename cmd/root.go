@@ -14,7 +14,7 @@ import (
 	"golang.org/x/term"
 )
 
-var appCtx *app.App
+var appState *app.App
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -29,7 +29,7 @@ func ManageGroupID() string {
 
 // App returns the loaded application for runtime-gated commands.
 func App() *app.App {
-	return appCtx
+	return appState
 }
 
 // PickKernel prompts for an installable kernel.
@@ -101,7 +101,7 @@ func bootstrapKernel(a *app.App) error {
 	if _, err := a.Kernel(); err != nil {
 		return err
 	}
-	appCtx = a
+	appState = a
 	log.Ok(fmt.Sprintf("kernel %q installed", name))
 	return nil
 }
@@ -127,7 +127,7 @@ func init() {
 			}
 			return err
 		}
-		appCtx = a
+		appState = a
 		return nil
 	}
 	RootCmd.AddGroup(manageGroup)

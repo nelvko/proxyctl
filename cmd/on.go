@@ -29,9 +29,9 @@ current shell; the kernel config decides the actual address.`,
 			return err
 		}
 
-		if active, err := k.IsActive(); err != nil {
+		if running, err := k.IsActive(); err != nil {
 			return err
-		} else if !active {
+		} else if !running {
 			if err := k.Start(); err != nil {
 				return err
 			}
