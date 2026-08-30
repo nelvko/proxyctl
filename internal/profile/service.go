@@ -24,14 +24,12 @@ const defaultDownloadTimeout = 10 * time.Second
 type profile = config.Profile
 
 type Service struct {
-	appConfig *config.AppConfig
 	subConfig *config.SubConfig
 	kernel    kernel.Kernel
 }
 
-func NewService(appCfg *config.AppConfig, subCfg *config.SubConfig, k kernel.Kernel) *Service {
+func NewService(subCfg *config.SubConfig, k kernel.Kernel) *Service {
 	return &Service{
-		appConfig: appCfg,
 		subConfig: subCfg,
 		kernel:    k,
 	}
@@ -71,7 +69,12 @@ func (s *Service) Add(option *profile) error {
 		return err
 	}
 
-	tmpFile, err := os.CreateTemp("", "profile-*")
+	// Create the temp file next to its destination: renaming across
+	// filesystems (/tmp is often tmpfs) fails with EXDEV.
+	if err := os.MkdirAll(config.SubDir, 0o755); err != nil {
+		return err
+	}
+	tmpFile, err := os.CreateTemp(config.SubDir, ".profile-*")
 	if err != nil {
 		return err
 	}
@@ -213,7 +216,7 @@ func (s *Service) Use(profileName string) error {
 	}
 
 	useFile := s.subConfig.Profiles[i].File
-	kernelCfg := s.appConfig.Kernel.ConfigFile
+	kernelCfg := s.kernel.ConfigFile()
 	if err := s.kernel.TestConfig(useFile); err != nil {
 		return err
 	}

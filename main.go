@@ -10,6 +10,7 @@ import (
 
 	"charm.land/fang/v2"
 	"github.com/nelvko/proxyctl/cmd"
+	_ "github.com/nelvko/proxyctl/cmd/kernel"
 	_ "github.com/nelvko/proxyctl/cmd/sub"
 )
 

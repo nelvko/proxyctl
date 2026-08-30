@@ -9,9 +9,6 @@ import (
 )
 
 type Runtime struct {
-	// AppConfig *config.AppConfig
-	// SubConfig *config.SubConfig
-
 	Kernel   kernel.Kernel
 	Profiles *profile.Service
 }
@@ -21,20 +18,21 @@ func LoadRuntime() (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load app config: %w", err)
 	}
+	kcfg := appCfg.ActiveKernel()
+	if kcfg == nil {
+		return nil, config.ErrNoKernel
+	}
 
 	subCfg, err := config.LoadSubConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load sub config: %w", err)
 	}
-	k, err := kernel.New(&appCfg.Kernel)
+	k, err := kernel.New(kcfg)
 	if err != nil {
 		return nil, err
 	}
-	rt := &Runtime{
-		// AppConfig: appCfg,
-		// SubConfig: subCfg,
+	return &Runtime{
 		Kernel:   k,
-		Profiles: profile.NewService(appCfg, subCfg, k),
-	}
-	return rt, nil
+		Profiles: profile.NewService(subCfg, k),
+	}, nil
 }

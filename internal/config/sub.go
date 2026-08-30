@@ -89,13 +89,7 @@ func SaveSubConfig(cfg *SubConfig) error {
 }
 
 func ensureSubConfig() error {
-	if err := ensureAppConfig(); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(SubDir, 0o755); err != nil {
-		return err
-	}
-	return nil
+	return os.MkdirAll(SubDir, 0o755)
 }
 
 func init() {

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/huh/v2/spinner"
 	"golang.org/x/sys/cpu"
 
 	"github.com/nelvko/proxyctl/internal/config"
@@ -24,6 +23,9 @@ type Mihomo struct {
 
 	cfg config.KernelConfig
 }
+
+func (m Mihomo) ConfigFile() string         { return m.cfg.ConfigFile }
+func (m Mihomo) ConfigFormat() ConfigFormat { return FormatClash }
 
 // TestConfig tests the configuration file for Mihomo by executing the Mihomo binary.
 // It captures the output and returns an error if the test fails.
@@ -41,68 +43,40 @@ func (m Mihomo) TestConfig(configFile string) error {
 	return nil
 }
 
-// Upgrade core
-func (m Mihomo) Upgrade() error {
-	return nil
-}
-
 const (
 	mihomoDownloadBaseURL = "https://github.com/MetaCubeX/mihomo/releases/latest/download/"
 	mihomoVersionURL      = mihomoDownloadBaseURL + "version.txt"
 )
 
-// LatestVersion fetches the latest version of Mihomo from the Github.
+// latestVersion fetches the latest mihomo version from GitHub.
 func latestVersion() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Generous budget: GitHub latency varies a lot by region.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	var (
-		version  string
-		fetchErr error
-	)
-
-	err := spinner.New().
-		Type(spinner.Dots).
-		Title("Fetching mihomo latest version").
-		Context(ctx).
-		Action(func() {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpx.GhProxy(mihomoVersionURL), nil)
-			if err != nil {
-				fetchErr = err
-				return
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				fetchErr = err
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				fetchErr = fmt.Errorf("unexpected status: %s", resp.Status)
-				return
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fetchErr = err
-				return
-			}
-
-			version = strings.TrimSpace(string(body))
-			if version == "" {
-				fetchErr = fmt.Errorf("empty version response")
-			}
-		}).
-		Run()
-
-	if fetchErr != nil {
-		return "", fmt.Errorf("fetch version: %w", fetchErr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpx.GhProxy(mihomoVersionURL), nil)
+	if err != nil {
+		return "", fmt.Errorf("fetch version: %w", err)
 	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch version: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch version: unexpected status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("fetch version: %w", err)
 	}
 
+	version := strings.TrimSpace(string(body))
+	if version == "" {
+		return "", fmt.Errorf("fetch version: empty response")
+	}
 	return version, nil
 }
 
