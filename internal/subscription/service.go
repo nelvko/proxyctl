@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -86,27 +87,8 @@ func (s *Service) Add(draft *profile) error {
 		}
 	}()
 
-	switch u.Scheme {
-	case "file":
-		src, err := os.Open(u.Path)
-		if err != nil {
-			return err
-		}
-		defer src.Close()
-		if _, err := io.Copy(tmpFile, src); err != nil {
-			return err
-		}
-	case "http", "https":
-		ctx, cancel := context.WithTimeout(context.Background(), s.downloadTimeout(draft))
-		defer cancel()
-		if _, err := httpx.Download(ctx, u.String(), tmpFile, nil); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return errors.New("download timed out, please try again later or specify a longer timeout")
-			}
-			return err
-		}
-	default:
-		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	if err := s.fetchSource(u, tmpFile, *draft); err != nil {
+		return err
 	}
 
 	if err := s.kernel.TestConfig(tmpName); err != nil {
@@ -297,6 +279,162 @@ func (s *Service) downloadTimeout(draft *profile) time.Duration {
 		return draft.Update.Timeout
 	}
 	return defaultDownloadTimeout
+}
+
+// fetchSource streams the profile source (a local copy for file URLs, a
+// download for http(s)) into dst, honoring the profile's timeout and
+// UseProxy settings.
+func (s *Service) fetchSource(u *url.URL, dst io.Writer, p profile) error {
+	switch u.Scheme {
+	case "file":
+		src, err := os.Open(u.Path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		_, err = io.Copy(dst, src)
+		return err
+	case "http", "https":
+		if p.Update.UseProxy {
+			s.routeViaKernel()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), s.downloadTimeout(&p))
+		defer cancel()
+		if _, err := httpx.Download(ctx, u.String(), dst, nil); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return errors.New("download timed out, please try again later or specify a longer timeout")
+			}
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+}
+
+// routeViaKernel routes subsequent downloads through the running kernel's
+// own inbound — the profile's UseProxy option.
+func (s *Service) routeViaKernel() {
+	inbound, ok := s.kernel.(interface{ InboundAddr() string })
+	if !ok {
+		return
+	}
+	if on, err := s.kernel.IsActive(); err != nil || !on {
+		return
+	}
+	httpx.UseLocalKernel(inbound.InboundAddr())
+}
+
+// Update re-fetches the named profiles (all of them when none are named).
+// A profile whose content did not change is left untouched; the active one
+// is re-applied to the kernel only when it actually changed. A failing
+// profile does not stop the others; the errors are joined.
+func (s *Service) Update(names ...string) error {
+	targets, err := s.resolveTargets(names)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	activeUpdated := false
+	for _, p := range targets {
+		changed, err := s.updateProfile(p)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
+			continue
+		}
+		if !changed {
+			ui.Ok(fmt.Sprintf("profile %q unchanged", p.Name))
+			continue
+		}
+		ui.Ok(fmt.Sprintf("profile %q updated", p.Name))
+		if s.ActiveName() == p.Name {
+			activeUpdated = true
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	if activeUpdated {
+		return s.Use(s.ActiveName())
+	}
+	return nil
+}
+
+func (s *Service) resolveTargets(names []string) ([]profile, error) {
+	if len(names) == 0 {
+		return s.List(), nil
+	}
+	targets := make([]profile, 0, len(names))
+	for _, name := range names {
+		p, err := s.Get(name)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, p)
+	}
+	return targets, nil
+}
+
+// updateProfile re-fetches one profile and swaps its file in atomically,
+// after the kernel accepts the new config. It reports whether the content
+// actually changed; identical content leaves the file — and the kernel —
+// untouched.
+func (s *Service) updateProfile(p profile) (bool, error) {
+	u, err := url.Parse(p.URL)
+	if err != nil {
+		return false, err
+	}
+	profilesDir, err := config.ProfilesDir()
+	if err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(profilesDir, 0o755); err != nil {
+		return false, err
+	}
+	tmpFile, err := os.CreateTemp(profilesDir, ".profile-*")
+	if err != nil {
+		return false, err
+	}
+	tmpName := tmpFile.Name()
+	defer func() {
+		tmpFile.Close()
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := s.fetchSource(u, tmpFile, p); err != nil {
+		return false, err
+	}
+	if err := s.kernel.TestConfig(tmpName); err != nil {
+		return false, err
+	}
+	if !contentChanged(tmpName, p.File) {
+		return false, nil
+	}
+	if err := tmpFile.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmpName, p.File); err != nil {
+		return false, err
+	}
+	tmpName = ""
+	return true, nil
+}
+
+// contentChanged reports whether tmp differs from the profile's current
+// file; a missing or unreadable current file counts as changed.
+func contentChanged(tmp, cur string) bool {
+	fresh, err := os.ReadFile(tmp)
+	if err != nil {
+		return true
+	}
+	current, err := os.ReadFile(cur)
+	if err != nil {
+		return true
+	}
+	return !bytes.Equal(fresh, current)
 }
 
 func (s *Service) save() error {

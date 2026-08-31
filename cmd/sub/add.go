@@ -67,5 +67,5 @@ func init() {
 	addCmd.Flags().StringVarP(&draft.Name, "name", "n", draft.Name, "Profile name; defaults to the current Unix timestamp")
 	addCmd.Flags().BoolVarP(&use, "use", "u", use, "Use the new profile after adding it")
 	addCmd.Flags().DurationVarP(&draft.Update.Timeout, "timeout", "t", draft.Update.Timeout, "HTTP(S) download timeout")
-	// todo updateConfig
+	addCmd.Flags().BoolVar(&draft.Update.UseProxy, "use-proxy", draft.Update.UseProxy, "Download through the running kernel's inbound when updating this profile")
 }

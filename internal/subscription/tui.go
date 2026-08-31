@@ -74,6 +74,7 @@ type keyMap struct {
 	Edit      key.Binding
 	Delete    key.Binding
 	Use       key.Binding
+	Refresh   key.Binding
 }
 
 var keys = keyMap{
@@ -100,6 +101,10 @@ var keys = keyMap{
 	Use: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "use"),
+	),
+	Refresh: key.NewBinding(
+		key.WithKeys("u"),
+		key.WithHelp("u", "update"),
 	),
 }
 
@@ -129,6 +134,8 @@ type editorFinishedMsg struct {
 
 type useFinishedMsg struct{ err error }
 
+type updateFinishedMsg struct{ err error }
+
 type addSubmittedMsg struct{}
 
 type addFinishedMsg struct {
@@ -149,6 +156,7 @@ func initialModel(profiles *Service) model {
 			keys.Edit,
 			keys.Add,
 			keys.Delete,
+			keys.Refresh,
 			keys.Use,
 		}
 	}
@@ -248,6 +256,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.Title = "use: " + m.profiles.ActiveName()
 		return m, m.successMessage("used")
+	case updateFinishedMsg:
+		m.list.StopSpinner()
+		if msg.err != nil {
+			return m, m.errorMessage(strings.TrimRight(msg.err.Error(), "\n"))
+		}
+		return m, m.successMessage("Updated")
 	case addFinishedMsg:
 		m.list.StopSpinner()
 		if msg.err != nil {
@@ -275,13 +289,21 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		}
 
 		selectedItem, ok := m.list.SelectedItem().(item)
-		if (!ok || len(m.list.Items()) == 0) && key.Matches(msg, keys.Delete, keys.Edit, keys.Use) {
+		if (!ok || len(m.list.Items()) == 0) && key.Matches(msg, keys.Delete, keys.Edit, keys.Refresh, keys.Use) {
 			return m.errorMessage("No profiles available. Please add a profile first.")
 		}
 
 		switch {
 		case key.Matches(msg, keys.Add):
 			return m.openAddForm()
+		case key.Matches(msg, keys.Refresh):
+			return tea.Batch(
+				m.pendingMessage("wait a moment..."),
+				m.list.StartSpinner(),
+				func() tea.Msg {
+					return updateFinishedMsg{err: m.profiles.Update(selectedItem.Name)}
+				},
+			)
 		case key.Matches(msg, keys.Edit):
 			cmd, err := m.profiles.EditorCommand(selectedItem.Name, "")
 			if err != nil {
