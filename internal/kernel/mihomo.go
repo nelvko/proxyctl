@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/httpx"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/nelvko/unisvc"
 )
 
@@ -33,10 +36,38 @@ type Mihomo struct {
 func (m Mihomo) ConfigFile() string         { return m.cfg.ConfigFile }
 func (m Mihomo) ConfigFormat() ConfigFormat { return FormatClash }
 
+// configTestTimeout bounds a config test: a validating mihomo may fetch
+// missing geodata, which on a blocked route would otherwise hang sub
+// add/use/update forever.
+const configTestTimeout = 60 * time.Second
+
+// geodataTimeout bounds one geodata fetch; the files are multi-MB.
+const geodataTimeout = 10 * time.Minute
+
+// geodataBaseURL points at the MetaCubeX rules-dat release; every asset is
+// a plain github.com download, so the mirror candidates apply.
+const geodataBaseURL = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/"
+
+// geodataFiles maps the on-disk names mihomo looks for to their download
+// URLs. A var so tests can point at a local server.
+var geodataFiles = map[string]string{
+	"GeoSite.dat":  geodataBaseURL + "geosite.dat",
+	"GeoIP.dat":    geodataBaseURL + "geoip.dat",
+	"geoip.metadb": geodataBaseURL + "geoip.metadb",
+}
+
 // TestConfig tests the configuration file for Mihomo by executing the Mihomo binary.
 // It captures the output and returns an error if the test fails.
 func (m Mihomo) TestConfig(configFile string) error {
-	cmd := exec.Command(
+	// A config referencing geodata makes `mihomo -t` fetch any missing file
+	// itself — on a blocked route that hangs until the timeout below. Seed
+	// first so the test runs on local files.
+	m.ensureGeodata(configFile)
+
+	ctx, cancel := context.WithTimeout(context.Background(), configTestTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(
+		ctx,
 		m.cfg.Bin,
 		"-t",
 		"-f", configFile,
@@ -44,9 +75,105 @@ func (m Mihomo) TestConfig(configFile string) error {
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("test config timed out after %s — mihomo may be downloading geodata (GeoSite.dat/GeoIP.dat) on a blocked route; pre-seed ~/.config/proxyctl/%s/ via a mirror and retry:\n%s", configTestTimeout, m.cfg.Name, out)
+		}
 		return fmt.Errorf("test config: \n%s", out)
 	}
 	return nil
+}
+
+// ensureGeodata pre-downloads the geodata files a config references into
+// the kernel's config dir, trying each mirror candidate before github.com.
+// Files already present are left alone; failures degrade to letting mihomo
+// fetch (bounded by the config-test timeout).
+func (m Mihomo) ensureGeodata(configFile string) {
+	if m.cfg.ConfigDir == "" {
+		return
+	}
+	body, err := os.ReadFile(configFile)
+	if err != nil {
+		return
+	}
+	for _, name := range geodataNeeded(body) {
+		dst := filepath.Join(m.cfg.ConfigDir, name)
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		if err := m.fetchGeodata(geodataFiles[name], dst); err != nil {
+			fmt.Fprintf(os.Stderr, "proxyctl: could not pre-seed %s (%v); letting mihomo fetch it\n", name, err)
+		}
+	}
+}
+
+// geodataNeeded lists the geodata file names a config references. GEOIP
+// resolves against geoip.metadb by default and GeoIP.dat in geodata-mode,
+// so both are seeded — guessing wrong is exactly the hang this prevents.
+func geodataNeeded(config []byte) []string {
+	var needed []string
+	references := func(tokens ...string) bool {
+		for _, t := range tokens {
+			if bytes.Contains(config, []byte(t)) {
+				return true
+			}
+		}
+		return false
+	}
+	if references("GEOSITE", "geosite") {
+		needed = append(needed, "GeoSite.dat")
+	}
+	if references("GEOIP", "geoip") {
+		needed = append(needed, "geoip.metadb", "GeoIP.dat")
+	}
+	return needed
+}
+
+// fetchGeodata downloads one geodata file to dst atomically, trying each
+// mirror candidate before github.com itself.
+func (m Mihomo) fetchGeodata(url, dst string) error {
+	sources, err := httpx.MirrorCandidates(url)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), geodataTimeout)
+	defer cancel()
+
+	f, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmpName := f.Name()
+	defer func() {
+		f.Close()
+		os.Remove(tmpName)
+	}()
+
+	ui.Err(fmt.Sprintf("downloading %s", filepath.Base(dst)))
+	var lastErr error
+	for _, src := range sources {
+		progress := progressPrinter()
+		_, err := httpx.Download(ctx, src, f, progress)
+		if progress != nil {
+			fmt.Fprintln(os.Stderr)
+		}
+		if err == nil {
+			if err := f.Close(); err != nil {
+				return err
+			}
+			if err := os.Rename(tmpName, dst); err != nil {
+				return err
+			}
+			return nil
+		}
+		lastErr = err
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		if err := f.Truncate(0); err != nil {
+			return err
+		}
+	}
+	return lastErr
 }
 
 const (
