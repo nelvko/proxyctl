@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -87,7 +88,7 @@ func needsRuntime(root, cmd *cobra.Command) bool {
 // installs the pick and continues with the loaded app. Under the shell
 // wrapper (eval'd stdout) an interactive TUI would be captured and lost, so
 // it degrades to a plain hint there.
-func ensureKernel(a *app.App) error {
+func ensureKernel(ctx context.Context, a *app.App) error {
 	if !isInteractive() || os.Getenv("PROXYCTL_WRAPPED") != "" {
 		return fmt.Errorf("no kernel installed, run `proxyctl kernel install` first")
 	}
@@ -95,7 +96,7 @@ func ensureKernel(a *app.App) error {
 	if err != nil {
 		return err
 	}
-	if err := a.InstallKernel(name); err != nil {
+	if err := a.InstallKernel(ctx, name); err != nil {
 		return err
 	}
 	if _, err := a.Kernel(); err != nil {
@@ -123,7 +124,7 @@ func init() {
 		}
 		if _, err := a.Kernel(); err != nil {
 			if errors.Is(err, config.ErrNoKernel) {
-				return ensureKernel(a)
+				return ensureKernel(cmd.Context(), a)
 			}
 			return err
 		}

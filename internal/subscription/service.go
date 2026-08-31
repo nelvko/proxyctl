@@ -99,7 +99,7 @@ func (s *Service) Add(draft *profile) error {
 	case "http", "https":
 		ctx, cancel := context.WithTimeout(context.Background(), s.downloadTimeout(draft))
 		defer cancel()
-		if err := httpx.Download(ctx, u.String(), tmpFile); err != nil {
+		if _, err := httpx.Download(ctx, u.String(), tmpFile, nil); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return errors.New("download timed out, please try again later or specify a longer timeout")
 			}

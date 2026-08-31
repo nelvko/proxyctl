@@ -1,9 +1,11 @@
 package kernel
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/nelvko/proxyctl/internal/app"
+	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -43,11 +45,20 @@ The service is restarted if it was running.`,
 		if err != nil {
 			return err
 		}
+		// Not persisted: only `kernel install` writes the mirror choice.
+		resolveMirror(cmd, a)
 		name := ""
 		if len(args) == 1 {
 			name = args[0]
 		}
-		if err := a.UpgradeKernel(name); err != nil {
+		if err := a.UpgradeKernel(cmd.Context(), name); err != nil {
+			if errors.Is(err, pkernel.ErrUpToDate) {
+				if name == "" {
+					name = "active kernel"
+				}
+				ui.Ok(fmt.Sprintf("%s already up to date", name))
+				return nil
+			}
 			return err
 		}
 		if name == "" {

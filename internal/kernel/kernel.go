@@ -1,11 +1,16 @@
 package kernel
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/unisvc"
 )
+
+// ErrUpToDate reports that the installed kernel already is the latest
+// release; callers treat it as success with nothing to do.
+var ErrUpToDate = errors.New("kernel is already the latest version")
 
 // ConfigFormat is the subscription config format a kernel understands.
 type ConfigFormat string
@@ -20,13 +25,31 @@ type Kernel interface {
 	Adapter
 }
 
+// Artifact describes a kernel release asset: where the bytes come from and,
+// when known, what they must hash to.
+type Artifact struct {
+	// URL is the direct github.com download URL; mirrors are prefixed onto
+	// it at download time.
+	URL string
+	// Version is the release tag, e.g. "v1.19.30" — the same format the
+	// installed binary reports.
+	Version string
+	// SHA256 pins the artifact (hex, from the GitHub API); empty means the
+	// download cannot be verified.
+	SHA256 string
+	Size   int64
+}
+
 type Adapter interface {
 	// ConfigFile returns the kernel's active config file path.
 	ConfigFile() string
 	// ConfigFormat returns the subscription format the kernel understands.
 	ConfigFormat() ConfigFormat
 	TestConfig(configFile string) error
-	DownloadURL() (string, error)
+	// LatestArtifact describes the latest release's asset.
+	LatestArtifact() (*Artifact, error)
+	// InstalledVersion returns the release version of the on-disk binary.
+	InstalledVersion() (string, error)
 }
 
 const (

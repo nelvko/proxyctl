@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"strings"
 
 	rootcmd "github.com/nelvko/proxyctl/cmd"
 	"github.com/nelvko/proxyctl/internal/app"
@@ -25,6 +26,12 @@ installed kernel becomes active.`,
 		if err != nil {
 			return err
 		}
+		// An explicit --mirror is remembered so later upgrades reuse it;
+		// InstallKernel's save persists it with the kernel entry.
+		if resolveMirror(cmd, a) {
+			ms, _ := cmd.Flags().GetStringSlice("mirror")
+			a.Cfg.Mirror = strings.Join(ms, ",")
+		}
 		name := ""
 		if len(args) == 1 {
 			name = args[0]
@@ -34,7 +41,7 @@ installed kernel becomes active.`,
 				return err
 			}
 		}
-		if err := a.InstallKernel(name); err != nil {
+		if err := a.InstallKernel(cmd.Context(), name); err != nil {
 			return err
 		}
 		ui.Ok(fmt.Sprintf("kernel %q installed", name))

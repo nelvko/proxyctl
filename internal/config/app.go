@@ -22,6 +22,9 @@ type AppConfig struct {
 	Use string `mapstructure:"use"`
 	// Kernels holds the installed kernels.
 	Kernels []KernelConfig `mapstructure:"kernels"`
+	// Mirror is a GitHub mirror prefix (or comma-separated list) used to
+	// accelerate kernel downloads; the GH_PROXY env variable overrides it.
+	Mirror string `mapstructure:"mirror"`
 }
 
 type KernelConfig struct {

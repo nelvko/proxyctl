@@ -4,12 +4,14 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/httpx"
 	"github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/nelvko/proxyctl/internal/subscription"
 	"github.com/nelvko/unisvc"
@@ -30,6 +32,11 @@ func Load() (*App, error) {
 	subs, err := config.LoadSubscriptionConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load subscription config: %w", err)
+	}
+	// The configured mirror applies to every command; kernel install/upgrade
+	// may still override it with --mirror for one invocation.
+	if cfg.Mirror != "" {
+		httpx.SetMirrors(strings.Split(cfg.Mirror, ",")...)
 	}
 	return &App{Cfg: cfg, Subscription: subs}, nil
 }
@@ -59,7 +66,7 @@ func (a *App) Profiles() (*subscription.Service, error) {
 
 // InstallKernel downloads the kernel, installs its user service and
 // registers it. The first installed kernel becomes active.
-func (a *App) InstallKernel(name string) error {
+func (a *App) InstallKernel(ctx context.Context, name string) error {
 	if !kernel.Known(name) {
 		return fmt.Errorf("unknown kernel %q, implemented: %s", name, strings.Join(kernel.ImplementedNames(), ", "))
 	}
@@ -89,7 +96,9 @@ func (a *App) InstallKernel(name string) error {
 		f.Close()
 	}
 
-	if err := kernel.Download(k, kcfg.Bin); err != nil {
+	// ErrUpToDate means the binary on disk already is the latest release
+	// (e.g. re-running install): keep going and converge the service setup.
+	if err := kernel.Download(ctx, k, kcfg.Bin); err != nil && !errors.Is(err, kernel.ErrUpToDate) {
 		return err
 	}
 
@@ -186,7 +195,7 @@ func (a *App) UninstallKernel(name string) error {
 // UpgradeKernel replaces the kernel binary with the latest release. An
 // empty name upgrades the active kernel. The service is restarted if it
 // was running.
-func (a *App) UpgradeKernel(name string) error {
+func (a *App) UpgradeKernel(ctx context.Context, name string) error {
 	if name == "" {
 		name = a.Cfg.Use
 	}
@@ -208,7 +217,7 @@ func (a *App) UpgradeKernel(name string) error {
 		wasRunning = on
 	}
 
-	if err := kernel.Download(k, kcfg.Bin); err != nil {
+	if err := kernel.Download(ctx, k, kcfg.Bin); err != nil {
 		return err
 	}
 	if wasRunning {
