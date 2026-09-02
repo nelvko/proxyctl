@@ -16,7 +16,7 @@ e2e-shell: build-linux vm ## shell-integration E2E in the VM (bash)
 	  echo SHELL_E2E_GREEN'
 
 shell: build-linux vm ## interactive shell in the OrbStack VM (proxyctl on PATH)
-	@echo ">> try: proxyctl kernel list | proxyctl sub (TUI) | proxyctl on"
+	@echo ">> try: proxyctl list | proxyctl sub (TUI) | proxyctl on"
 	orb -m $(VM)
 
 vm: ## ensure the OrbStack test machine exists
@@ -34,18 +34,18 @@ test: ## unit tests
 	go test ./...
 
 smoke: build-linux ## command-surface smoke in an alpine container
-	docker run --rm -v $(BIN):/p:ro alpine /p kernel list
+	docker run --rm -v $(BIN):/p:ro alpine /p list
 
 verify: vet test smoke ## everything that needs no systemd
 
 e2e: build-linux vm ## read-only run on the OrbStack VM
-	orb -m $(VM) bash -c '$(BIN) status; $(BIN) kernel list; $(BIN) sub list'
+	orb -m $(VM) bash -c '$(BIN) status; $(BIN) list; $(BIN) sub list'
 
 e2e-reset: build-linux vm ## wipe VM state, fresh install + subscription + proxy check
 	orb -m $(VM) bash -c '\
-	  $(BIN) kernel uninstall mihomo 2>/dev/null; \
+	  $(BIN) uninstall mihomo 2>/dev/null; \
 	  rm -rf ~/.config/proxyctl; \
-	  $(BIN) kernel install mihomo && \
+	  $(BIN) install mihomo && \
 	  $(BIN) sub add file://$(FIXTURE) -n e2e && \
 	  systemctl --user is-active mihomo.service && \
 	  sleep 2 && \

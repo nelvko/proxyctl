@@ -1,4 +1,4 @@
-package kernel
+package cmd
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// useCmd represents the use command
+// useCmd switches the active kernel.
 var useCmd = &cobra.Command{
 	Use:   "use <name>",
 	Short: "Switch the active kernel",
@@ -16,7 +16,8 @@ var useCmd = &cobra.Command{
 
 The previously active service is stopped and the current
 subscription is re-applied on the new kernel.`,
-	Args: cobra.ExactArgs(1),
+	Args:        cobra.ExactArgs(1),
+	Annotations: map[string]string{"skipRuntime": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		a, err := app.Load()
 		if err != nil {
@@ -35,5 +36,5 @@ subscription is re-applied on the new kernel.`,
 }
 
 func init() {
-	kernelCmd.AddCommand(useCmd)
+	RootCmd.AddCommand(useCmd)
 }

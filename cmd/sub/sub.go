@@ -8,8 +8,9 @@ import (
 
 // subCmd represents the sub command
 var subCmd = &cobra.Command{
-	Use:   "sub",
-	Short: "Manage subscription profiles",
+	Use:     "sub",
+	Aliases: []string{"subscription"},
+	Short:   "Manage subscription profiles",
 	Long: `Manage subscription profiles.
 
 Run without a subcommand to open the TUI.`,

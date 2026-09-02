@@ -1,4 +1,4 @@
-package kernel
+package cmd
 
 import (
 	"fmt"
@@ -8,13 +8,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listCmd represents the list command
+// listCmd lists kernels with install and active status.
 var listCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"ls"},
-	Short:   "List kernels",
-	Long:    `List known kernels with install and active status.`,
-	Args:    cobra.NoArgs,
+	Use:         "list",
+	Aliases:     []string{"ls"},
+	Short:       "List kernels",
+	Long:        `List known kernels with install and active status.`,
+	Args:        cobra.NoArgs,
+	Annotations: map[string]string{"skipRuntime": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		a, err := app.Load()
 		if err != nil {
@@ -41,5 +42,5 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	kernelCmd.AddCommand(listCmd)
+	RootCmd.AddCommand(listCmd)
 }
