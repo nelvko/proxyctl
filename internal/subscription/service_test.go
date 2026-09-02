@@ -21,6 +21,7 @@ type fakeKernel struct {
 
 	cfgFile  string
 	restarts int
+	stopped  bool
 }
 
 func (f *fakeKernel) ConfigFile() string                { return f.cfgFile }
@@ -31,7 +32,7 @@ func (f *fakeKernel) LatestArtifact() (*kernel.Artifact, error) {
 func (f *fakeKernel) InstalledVersion() (string, error) {
 	return "", errors.New("not needed")
 }
-func (f *fakeKernel) IsActive() (bool, error) { return true, nil }
+func (f *fakeKernel) IsActive() (bool, error) { return !f.stopped, nil }
 func (f *fakeKernel) Restart() error {
 	f.restarts++
 	return nil
@@ -197,5 +198,65 @@ func TestUpdateRejectsUnknownName(t *testing.T) {
 	svc, _ := newTestService(t)
 	if err := svc.Update("nope"); err == nil {
 		t.Fatal("Update(unknown) succeeded; want error")
+	}
+}
+
+// TestUpdateAppliesActiveDespiteOtherFailure pins the anti-stranding fix:
+// when the active profile updated but another profile's source failed, the
+// kernel must still be switched — otherwise it stays on the old
+// subscription forever (the next update sees identical bytes).
+func TestUpdateAppliesActiveDespiteOtherFailure(t *testing.T) {
+	svc, k := newTestService(t)
+
+	src := filepath.Join(t.TempDir(), "sub.yaml")
+	writeFile(t, src, "proxies: [a]\n")
+	active := &profile{Name: "active", URL: "file://" + src}
+	if err := svc.Add(active); err != nil {
+		t.Fatalf("Add(active) error = %v", err)
+	}
+	k.restarts = 0 // Add auto-activates; start counting now
+	svc.subConfig.Profiles = append(svc.subConfig.Profiles, profile{
+		Name: "bad", URL: "file:///nonexistent/sub.yaml", File: filepath.Join(t.TempDir(), "bad.yaml"),
+	})
+
+	writeFile(t, src, "proxies: [fresh]\n")
+	err := svc.Update()
+	if err == nil || !strings.Contains(err.Error(), "bad") {
+		t.Fatalf("Update() error = %v; want a joined error naming the bad profile", err)
+	}
+	if k.restarts == 0 {
+		t.Fatal("active profile update was not applied although another profile failed")
+	}
+	got, _ := os.ReadFile(k.cfgFile)
+	if string(got) != "proxies: [fresh]\n" {
+		t.Fatalf("kernel config = %q; want the updated active profile", got)
+	}
+}
+
+// TestUpdateStagesConfigWhenKernelStopped pins that an update never
+// resurrects a kernel the user deliberately stopped: new bytes go to the
+// kernel config file, no restart.
+func TestUpdateStagesConfigWhenKernelStopped(t *testing.T) {
+	svc, k := newTestService(t)
+
+	src := filepath.Join(t.TempDir(), "sub.yaml")
+	writeFile(t, src, "proxies: [a]\n")
+	if err := svc.Add(&profile{Name: "p1", URL: "file://" + src}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	k.stopped = true
+	k.restarts = 0
+	writeFile(t, src, "proxies: [staged]\n")
+
+	if err := svc.Update("p1"); err != nil {
+		t.Fatalf("Update() with a stopped kernel error = %v", err)
+	}
+	if k.restarts != 0 {
+		t.Fatalf("kernel restarted %d times although it was stopped", k.restarts)
+	}
+	got, err := os.ReadFile(k.cfgFile)
+	if err != nil || string(got) != "proxies: [staged]\n" {
+		t.Fatalf("kernel config = %q (%v); want the staged update", got, err)
 	}
 }

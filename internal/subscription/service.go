@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -295,12 +296,15 @@ func (s *Service) fetchSource(u *url.URL, dst io.Writer, p profile) error {
 		_, err = io.Copy(dst, src)
 		return err
 	case "http", "https":
+		cl := httpx.Client()
 		if p.Update.UseProxy {
-			s.routeViaKernel()
+			if kc := s.kernelClient(); kc != nil {
+				cl = kc
+			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), s.downloadTimeout(&p))
 		defer cancel()
-		if _, err := httpx.Download(ctx, u.String(), dst, nil); err != nil {
+		if _, err := httpx.DownloadVia(cl, ctx, u.String(), dst, nil); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return errors.New("download timed out, please try again later or specify a longer timeout")
 			}
@@ -312,17 +316,18 @@ func (s *Service) fetchSource(u *url.URL, dst io.Writer, p profile) error {
 	}
 }
 
-// routeViaKernel routes subsequent downloads through the running kernel's
-// own inbound — the profile's UseProxy option.
-func (s *Service) routeViaKernel() {
+// kernelClient returns a client routed through the running kernel's inbound
+// for profiles with UseProxy, or nil when that is unavailable. Per-request:
+// it must not leak into other profiles' downloads.
+func (s *Service) kernelClient() *http.Client {
 	inbound, ok := s.kernel.(interface{ InboundAddr() string })
 	if !ok {
-		return
+		return nil
 	}
 	if on, err := s.kernel.IsActive(); err != nil || !on {
-		return
+		return nil
 	}
-	httpx.UseLocalKernel(inbound.InboundAddr())
+	return httpx.KernelClient(inbound.InboundAddr())
 }
 
 // Update re-fetches the named profiles (all of them when none are named).
@@ -352,12 +357,42 @@ func (s *Service) Update(names ...string) error {
 			activeUpdated = true
 		}
 	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
+	// Re-apply even when other profiles failed: the active profile's file
+	// on disk already changed, and skipping it would strand the kernel on
+	// the old subscription forever — the next update would see identical
+	// bytes and report "unchanged".
 	if activeUpdated {
+		if err := s.applyActive(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// applyActive puts the active profile's (already updated) bytes into the
+// kernel config. A running kernel restarts to pick them up; a stopped one
+// only gets the staged config — `proxyctl on` activates it, and an update
+// must never resurrect a kernel the user deliberately stopped.
+func (s *Service) applyActive() error {
+	running, err := s.kernel.IsActive()
+	if err != nil {
+		return err
+	}
+	if running {
 		return s.Use(s.ActiveName())
 	}
+	p, err := s.Active()
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(p.File)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(s.kernel.ConfigFile(), b, 0o644); err != nil {
+		return err
+	}
+	ui.Err(fmt.Sprintf("kernel is stopped; updated config staged, `proxyctl on` activates it"))
 	return nil
 }
 

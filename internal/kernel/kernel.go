@@ -38,6 +38,10 @@ type Artifact struct {
 	// download cannot be verified.
 	SHA256 string
 	Size   int64
+	// FromAPI reports whether the metadata came from the GitHub API (as
+	// opposed to the version.txt fallback). An API answer without a digest
+	// is unexpected and fails closed when mirrors are in play.
+	FromAPI bool
 }
 
 type Adapter interface {

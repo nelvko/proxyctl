@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/term"
@@ -56,10 +57,19 @@ func Download(ctx context.Context, k Kernel, bin string) error {
 	}
 	useLocalKernelIfRunning(k)
 
-	ui.Err("resolving latest release…")
+	statusf("resolving latest release…")
 	art, err := k.LatestArtifact()
 	if err != nil {
 		return err
+	}
+	// An API answer without a digest is unexpected: refuse mirror bytes we
+	// cannot verify (the version.txt fallback is the only legitimate
+	// digest-less path, and it is TLS-anchored direct github.com anyway).
+	if art.FromAPI && art.SHA256 == "" {
+		if len(httpx.Mirrors()) > 0 {
+			return fmt.Errorf("release %s carries no digest; refusing mirror downloads that cannot be verified (set PROXYCTL_NO_VERIFY=1 to override)", art.Version)
+		}
+		fmt.Fprintf(os.Stderr, "proxyctl: release %s carries no digest; continuing with TLS-only verification\n", art.Version)
 	}
 	// Skip the multi-MB fetch when the binary on disk already is the latest.
 	if cur, err := k.InstalledVersion(); err == nil && cur == art.Version {
@@ -134,7 +144,7 @@ func fetchArtifact(ctx context.Context, src string, art *Artifact, f *os.File) e
 	if err := f.Truncate(0); err != nil {
 		return err
 	}
-	ui.Err(fmt.Sprintf("downloading %s", src))
+	statusf("downloading %s", src)
 
 	w := &resettableWriter{f: f, h: sha256.New()}
 	progress := progressPrinter()
@@ -181,11 +191,27 @@ func (w *resettableWriter) Reset() error {
 	return w.f.Truncate(0)
 }
 
+// quietDownloads silences download progress/status lines when set — the
+// subscription TUI runs its own spinner and a stderr progress line would
+// corrupt its full-screen rendering.
+var quietDownloads atomic.Bool
+
+// SetQuietDownloads toggles download progress/status output.
+func SetQuietDownloads(q bool) { quietDownloads.Store(q) }
+
+// statusf prints a download status line unless quiet.
+func statusf(format string, a ...any) {
+	if quietDownloads.Load() {
+		return
+	}
+	ui.Err(fmt.Sprintf(format, a...))
+}
+
 // progressPrinter returns an httpx progress callback that rewrites a single
-// stderr line, throttled to displayed-value changes; nil when stderr is not
-// a terminal, keeping pipes and captured output quiet.
+// stderr line, throttled to displayed-value changes; nil when quiet or when
+// stderr is not a terminal, keeping pipes and captured output clean.
 func progressPrinter() func(total, n int64) {
-	if !term.IsTerminal(int(os.Stderr.Fd())) {
+	if quietDownloads.Load() || !term.IsTerminal(int(os.Stderr.Fd())) {
 		return nil
 	}
 	const mib = 1 << 20

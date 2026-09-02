@@ -43,26 +43,42 @@ func Client() *http.Client {
 // environment of its own (fresh SSH, cron, scripts). An explicit shell
 // proxy always wins over the managed kernel.
 func UseLocalKernel(addr string) {
+	if c := KernelClient(addr); c != nil {
+		client = c
+	}
+}
+
+// KernelClient returns an *http.Client whose transport routes through the
+// managed kernel's inbound at addr, or nil when addr is empty or the shell
+// already carries an explicit proxy. Per-request use of this avoids the
+// process-global mutation of UseLocalKernel.
+func KernelClient(addr string) *http.Client {
 	if addr == "" {
-		return
+		return nil
 	}
 	for _, k := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
 		if os.Getenv(k) != "" {
-			return
+			return nil
 		}
 	}
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.Proxy = http.ProxyURL(&URL.URL{Scheme: "http", Host: addr})
-	client = &http.Client{Transport: t}
+	return &http.Client{Transport: t}
 }
 
 // Mirrors returns the effective mirror list: the comma-separated GH_PROXY
-// environment variable when set, else the configured one.
+// environment variable when set, else the configured one. Empty entries
+// (e.g. a stray ",") are dropped so presence checks are not fooled.
 func Mirrors() []string {
+	var list []string
 	if env := os.Getenv("GH_PROXY"); env != "" {
-		return strings.Split(env, ",")
+		list = strings.Split(env, ",")
+	} else {
+		list = configuredMirrors
 	}
-	return configuredMirrors
+	return slices.DeleteFunc(list, func(m string) bool {
+		return strings.TrimSpace(m) == ""
+	})
 }
 
 // MirrorCandidates returns the URLs to try for a GitHub artifact: each
@@ -88,11 +104,11 @@ func MirrorCandidates(raw string) ([]string, error) {
 			// A mirror is a URL prefix, not an HTTP proxy address: downloads
 			// already honor HTTP_PROXY/HTTPS_PROXY, so after `proxyctl on`
 			// they use the local kernel without one.
-			warnOnce("proxyctl: ignoring mirror %q: it looks like an HTTP proxy address, not a mirror prefix (downloads honor HTTP_PROXY)\n", m)
+			warnLoopbackOnce("proxyctl: ignoring mirror %q: it looks like an HTTP proxy address, not a mirror prefix (downloads honor HTTP_PROXY)\n", m)
 			continue
 		}
 		if u.Scheme == "http" {
-			warnOnce("proxyctl: warning: mirror %q is plain http; the transfer is not encrypted end-to-end\n", m)
+			warnPlainHTTPOnce("proxyctl: warning: mirror %q is plain http; the transfer is not encrypted end-to-end\n", m)
 		}
 		prefixed := strings.TrimSuffix(m, "/") + "/" + raw
 		if !slices.Contains(candidates, prefixed) {
@@ -107,14 +123,20 @@ func MirrorCandidates(raw string) ([]string, error) {
 	return candidates, nil
 }
 
-// warnGHProxy prints a mirror notice to stderr at most once per process:
-// a single command may resolve several proxied URLs (version probe + asset).
-var warnGHProxy sync.Once
+// warnLoopback and warnPlainHTTP each print their notice at most once per
+// process: a single command may resolve several proxied URLs (version probe
+// + asset + geodata). Separate onces so one notice cannot suppress the other.
+var (
+	warnLoopback  sync.Once
+	warnPlainHTTP sync.Once
+)
 
-func warnOnce(format string, args ...any) {
-	warnGHProxy.Do(func() {
-		fmt.Fprintf(os.Stderr, format, args...)
-	})
+func warnLoopbackOnce(format string, args ...any) {
+	warnLoopback.Do(func() { fmt.Fprintf(os.Stderr, format, args...) })
+}
+
+func warnPlainHTTPOnce(format string, args ...any) {
+	warnPlainHTTP.Do(func() { fmt.Fprintf(os.Stderr, format, args...) })
 }
 
 // isLoopbackHost reports whether u points at the local machine — almost
@@ -162,6 +184,13 @@ func (e *statusError) Error() string {
 // Content-Length (-1 when unknown) and the byte count so far as the copy
 // proceeds.
 func Download(ctx context.Context, url string, dst io.Writer, onProgress func(total, n int64)) (int64, error) {
+	return DownloadVia(client, ctx, url, dst, onProgress)
+}
+
+// DownloadVia is Download with an explicit client, so per-request routing
+// (e.g. a profile's use-proxy setting) does not mutate the process-global
+// transport.
+func DownloadVia(cl *http.Client, ctx context.Context, url string, dst io.Writer, onProgress func(total, n int64)) (int64, error) {
 	var lastErr error
 	for attempt := 1; attempt <= downloadAttempts; attempt++ {
 		if attempt > 1 {
@@ -172,7 +201,7 @@ func Download(ctx context.Context, url string, dst io.Writer, onProgress func(to
 			}
 		}
 
-		n, err := fetch(ctx, url, dst, onProgress)
+		n, err := fetchVia(cl, ctx, url, dst, onProgress)
 		if err == nil {
 			return n, nil
 		}
@@ -213,6 +242,10 @@ func retryable(err error) bool {
 }
 
 func fetch(ctx context.Context, url string, dst io.Writer, onProgress func(total, n int64)) (int64, error) {
+	return fetchVia(client, ctx, url, dst, onProgress)
+}
+
+func fetchVia(cl *http.Client, ctx context.Context, url string, dst io.Writer, onProgress func(total, n int64)) (int64, error) {
 	// Two watchdogs bound a single attempt independently of the overall
 	// context budget: stallWindow of total silence, and a size-aware budget
 	// so a dribbling connection cannot hold the download forever.
@@ -226,7 +259,7 @@ func fetch(ctx context.Context, url string, dst io.Writer, onProgress func(total
 	if err != nil {
 		return 0, err
 	}
-	resp, err := client.Do(req)
+	resp, err := cl.Do(req)
 	if err != nil {
 		return 0, classifyTransferErr(ctx, stallCtx, &slow, time.Duration(0), err)
 	}

@@ -14,6 +14,7 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/kernel"
 )
 
 const (
@@ -121,7 +122,7 @@ type model struct {
 	styles styles
 
 	lastPress struct {
-		d, enter time.Time
+		d, enter, u time.Time
 	}
 
 	err error
@@ -297,6 +298,12 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, keys.Add):
 			return m.openAddForm()
 		case key.Matches(msg, keys.Refresh):
+			// Throttle: a second press while an update is in flight would
+			// run a concurrent Update on the same files and kernel.
+			if time.Since(m.lastPress.u) < throttleInterval {
+				return nil
+			}
+			m.lastPress.u = time.Now()
 			return tea.Batch(
 				m.pendingMessage("wait a moment..."),
 				m.list.StartSpinner(),
@@ -437,6 +444,10 @@ func (m model) appErrorBoundaryView(position lipgloss.Position, text string) str
 }
 
 func TUI(profiles *Service) error {
+	// The full-screen TUI renders its own spinner; a stderr progress line
+	// from geodata/kernel downloads would corrupt the altscreen.
+	kernel.SetQuietDownloads(true)
+	defer kernel.SetQuietDownloads(false)
 	p := tea.NewProgram(initialModel(profiles))
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running program: %w", err)

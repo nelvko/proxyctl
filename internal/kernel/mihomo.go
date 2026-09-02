@@ -3,10 +3,11 @@ package kernel
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -23,7 +24,6 @@ import (
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/httpx"
-	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/nelvko/unisvc"
 )
 
@@ -41,12 +41,24 @@ func (m Mihomo) ConfigFormat() ConfigFormat { return FormatClash }
 // add/use/update forever.
 const configTestTimeout = 60 * time.Second
 
-// geodataTimeout bounds one geodata fetch; the files are multi-MB.
-const geodataTimeout = 10 * time.Minute
+// geodataBudget bounds the whole pre-seeding pass: this runs on interactive
+// paths (sub add/use/update), so a blocked route must degrade to letting
+// mihomo fetch, not stall the command for minutes per file.
+const geodataBudget = 90 * time.Second
+
+// geodataMinSize rejects obviously wrong payloads: every rules-dat asset is
+// well above 1 MiB, while a mirror error page or captive portal is not.
+// Without this a 200 error page would occupy the target path forever
+// (ensureGeodata skips files that already exist).
+const geodataMinSize = 1 << 20
 
 // geodataBaseURL points at the MetaCubeX rules-dat release; every asset is
 // a plain github.com download, so the mirror candidates apply.
 const geodataBaseURL = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/"
+
+// geodataReleasesAPI is the trust anchor for geodata digests. A var so
+// tests can point at a local server.
+var geodataReleasesAPI = "https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/latest"
 
 // geodataFiles maps the on-disk names mihomo looks for to their download
 // URLs. A var so tests can point at a local server.
@@ -54,6 +66,12 @@ var geodataFiles = map[string]string{
 	"GeoSite.dat":  geodataBaseURL + "geosite.dat",
 	"GeoIP.dat":    geodataBaseURL + "geoip.dat",
 	"geoip.metadb": geodataBaseURL + "geoip.metadb",
+}
+
+// geodataMeta pins one geodata asset.
+type geodataMeta struct {
+	sha256 string
+	size   int64
 }
 
 // TestConfig tests the configuration file for Mihomo by executing the Mihomo binary.
@@ -84,9 +102,12 @@ func (m Mihomo) TestConfig(configFile string) error {
 }
 
 // ensureGeodata pre-downloads the geodata files a config references into
-// the kernel's config dir, trying each mirror candidate before github.com.
-// Files already present are left alone; failures degrade to letting mihomo
-// fetch (bounded by the config-test timeout).
+// the kernel's config dir, verifying each source against the release digest
+// from the GitHub API — a mirror supplies bytes, never identity, same as
+// kernel downloads. Without a digest anchor the mirror candidates are
+// dropped in favor of TLS-anchored github.com. Files already present are
+// left alone; failures degrade to letting mihomo fetch (bounded by the
+// config-test timeout).
 func (m Mihomo) ensureGeodata(configFile string) {
 	if m.cfg.ConfigDir == "" {
 		return
@@ -95,15 +116,74 @@ func (m Mihomo) ensureGeodata(configFile string) {
 	if err != nil {
 		return
 	}
-	for _, name := range geodataNeeded(body) {
-		dst := filepath.Join(m.cfg.ConfigDir, name)
-		if _, err := os.Stat(dst); err == nil {
+	needed := geodataNeeded(body)
+	if len(needed) == 0 {
+		return
+	}
+
+	metas := geodataReleaseMetadata()
+	if metas == nil && len(httpx.Mirrors()) > 0 && os.Getenv("PROXYCTL_NO_VERIFY") == "" {
+		fmt.Fprintf(os.Stderr, "proxyctl: geodata digests unavailable; using github.com directly (set PROXYCTL_NO_VERIFY=1 to allow mirrors)\n")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), geodataBudget)
+	defer cancel()
+	for _, name := range needed {
+		if _, err := os.Stat(filepath.Join(m.cfg.ConfigDir, name)); err == nil {
 			continue
 		}
-		if err := m.fetchGeodata(geodataFiles[name], dst); err != nil {
+		if err := m.fetchGeodata(ctx, name, metas[name]); err != nil {
 			fmt.Fprintf(os.Stderr, "proxyctl: could not pre-seed %s (%v); letting mihomo fetch it\n", name, err)
 		}
 	}
+}
+
+// geodataReleaseMetadata resolves digests and sizes for all three geodata
+// assets in one API call; nil when the API is unreachable (callers degrade).
+func geodataReleaseMetadata() map[string]geodataMeta {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, geodataReleasesAPI, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := httpx.Client().Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		Assets []struct {
+			Name   string `json:"name"`
+			Size   int64  `json:"size"`
+			Digest string `json:"digest"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil
+	}
+
+	// Map API asset names ("geosite.dat") to our on-disk keys.
+	byAsset := make(map[string]string, len(geodataFiles))
+	for disk, u := range geodataFiles {
+		byAsset[filepath.Base(u)] = disk
+	}
+	metas := make(map[string]geodataMeta, len(geodataFiles))
+	for _, a := range release.Assets {
+		if disk, ok := byAsset[a.Name]; ok {
+			metas[disk] = geodataMeta{
+				sha256: strings.TrimPrefix(a.Digest, "sha256:"),
+				size:   a.Size,
+			}
+		}
+	}
+	return metas
 }
 
 // geodataNeeded lists the geodata file names a config references. GEOIP
@@ -128,16 +208,20 @@ func geodataNeeded(config []byte) []string {
 	return needed
 }
 
-// fetchGeodata downloads one geodata file to dst atomically, trying each
-// mirror candidate before github.com itself.
-func (m Mihomo) fetchGeodata(url, dst string) error {
-	sources, err := httpx.MirrorCandidates(url)
+// fetchGeodata downloads one geodata file to its final path atomically,
+// trying each allowed source and verifying size and digest when known.
+func (m Mihomo) fetchGeodata(ctx context.Context, name string, meta geodataMeta) error {
+	sources, err := httpx.MirrorCandidates(geodataFiles[name])
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), geodataTimeout)
-	defer cancel()
+	// No digest anchor: a mirror must not supply identity — keep only the
+	// TLS-authenticated direct URL, unless verification is explicitly off.
+	if meta.sha256 == "" && len(sources) > 1 && os.Getenv("PROXYCTL_NO_VERIFY") == "" {
+		sources = sources[len(sources)-1:]
+	}
 
+	dst := filepath.Join(m.cfg.ConfigDir, name)
 	f, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp*")
 	if err != nil {
 		return err
@@ -148,15 +232,28 @@ func (m Mihomo) fetchGeodata(url, dst string) error {
 		os.Remove(tmpName)
 	}()
 
-	ui.Err(fmt.Sprintf("downloading %s", filepath.Base(dst)))
+	statusf("downloading %s", name)
 	var lastErr error
 	for _, src := range sources {
+		w := &resettableWriter{f: f, h: sha256.New()}
 		progress := progressPrinter()
-		_, err := httpx.Download(ctx, src, f, progress)
+		n, err := httpx.Download(ctx, src, w, progress)
 		if progress != nil {
 			fmt.Fprintln(os.Stderr)
 		}
-		if err == nil {
+		switch {
+		case err != nil:
+			lastErr = err
+		case n < geodataMinSize:
+			// An error page or truncated mirror payload must never occupy
+			// the target path — the Stat check would treat it as done
+			// forever.
+			lastErr = fmt.Errorf("%s served %d bytes, below the %d minimum", src, n, geodataMinSize)
+		case meta.size > 0 && n != meta.size:
+			lastErr = fmt.Errorf("size mismatch for %s: got %d bytes, want %d", src, n, meta.size)
+		case meta.sha256 != "" && hex.EncodeToString(w.h.Sum(nil)) != meta.sha256:
+			lastErr = fmt.Errorf("integrity check failed for %s: sha256 %s, want %s", src, hex.EncodeToString(w.h.Sum(nil)), meta.sha256)
+		default:
 			if err := f.Close(); err != nil {
 				return err
 			}
@@ -165,11 +262,7 @@ func (m Mihomo) fetchGeodata(url, dst string) error {
 			}
 			return nil
 		}
-		lastErr = err
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		if err := f.Truncate(0); err != nil {
+		if err := w.Reset(); err != nil {
 			return err
 		}
 	}
@@ -254,6 +347,7 @@ func latestArtifactFromAPI() (*Artifact, error) {
 			Version: release.TagName,
 			SHA256:  strings.TrimPrefix(a.Digest, "sha256:"),
 			Size:    a.Size,
+			FromAPI: true,
 		}, nil
 	}
 	return nil, fmt.Errorf("release %s has no %q asset", release.TagName, name)

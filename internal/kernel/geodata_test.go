@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,9 +39,18 @@ func TestGeodataNeeded(t *testing.T) {
 func TestEnsureGeodataSeedsMissingFiles(t *testing.T) {
 	t.Setenv("GH_PROXY", "")
 
+	// Keep the digest API out of the test: an unreachable local address
+	// makes geodataReleaseMetadata degrade to direct-only, no digest.
+	origAPI := geodataReleasesAPI
+	geodataReleasesAPI = "http://127.0.0.1:1/nope"
+	t.Cleanup(func() { geodataReleasesAPI = origAPI })
+
+	// Above geodataMinSize: an error-page-sized payload must be rejected.
+	payload := bytes.Repeat([]byte("g"), geodataMinSize+64)
+
 	dir := t.TempDir()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("dat-bytes-for:" + filepath.Base(r.URL.Path)))
+		_, _ = w.Write(payload)
 	}))
 	defer srv.Close()
 	orig := geodataFiles
@@ -71,7 +81,38 @@ func TestEnsureGeodataSeedsMissingFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal("GeoIP.dat was not seeded:", err)
 	}
-	if string(got) != "dat-bytes-for:geoip.dat" {
-		t.Fatalf("GeoIP.dat content = %q", got)
+	if len(got) != len(payload) {
+		t.Fatalf("GeoIP.dat size = %d, want %d", len(got), len(payload))
+	}
+}
+
+// TestEnsureGeodataRejectsErrorPage pins the sticky-pollution guard: a 200
+// response that is really an error page must never occupy the target path,
+// because the Stat check in ensureGeodata would treat it as seeded forever.
+func TestEnsureGeodataRejectsErrorPage(t *testing.T) {
+	t.Setenv("GH_PROXY", "")
+	origAPI := geodataReleasesAPI
+	geodataReleasesAPI = "http://127.0.0.1:1/nope"
+	t.Cleanup(func() { geodataReleasesAPI = origAPI })
+
+	dir := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html>mirror error page</html>"))
+	}))
+	defer srv.Close()
+	orig := geodataFiles
+	geodataFiles = map[string]string{"GeoSite.dat": srv.URL + "/geosite.dat"}
+	t.Cleanup(func() { geodataFiles = orig })
+
+	cfgFile := filepath.Join(dir, "profile.yaml")
+	if err := os.WriteFile(cfgFile, []byte("rules:\n  - GEOSITE,cn,DIRECT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := Mihomo{cfg: config.KernelConfig{ConfigDir: dir}}
+	m.ensureGeodata(cfgFile)
+
+	if _, err := os.Stat(filepath.Join(dir, "GeoSite.dat")); !os.IsNotExist(err) {
+		t.Fatalf("an error-page payload was written to GeoSite.dat (stat err = %v)", err)
 	}
 }
