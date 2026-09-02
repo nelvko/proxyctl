@@ -26,7 +26,7 @@ and the current subscription.`,
 
 		kcfg := a.Cfg.ActiveKernel()
 		if kcfg == nil {
-			fmt.Println("kernel:    none (run `proxyctl kernel install`)")
+			fmt.Println("kernel:    none (run `proxyctl install`)")
 			return nil
 		}
 		fmt.Printf("kernel:    %s\n", kcfg.Name)
