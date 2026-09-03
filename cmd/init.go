@@ -25,6 +25,7 @@ Add the integration to your shell:
 Without an argument the shell is detected from the environment.`,
 	Args:      cobra.MaximumNArgs(1),
 	ValidArgs: []string{"bash", "zsh", "fish"},
+	GroupID:   ShellGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		shell := ""
 		if len(args) == 1 {

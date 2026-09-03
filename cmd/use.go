@@ -17,6 +17,7 @@ var useCmd = &cobra.Command{
 The previously active service is stopped and the current
 subscription is re-applied on the new kernel.`,
 	Args:        cobra.ExactArgs(1),
+	GroupID:     KernelGroup.ID,
 	Annotations: map[string]string{"skipRuntime": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		a, err := app.Load()

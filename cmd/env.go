@@ -18,6 +18,7 @@ environment in sync:
 
     eval "$(proxyctl env)"
 `,
+	GroupID: ShellGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		k, err := App().Kernel()
 		if err != nil {

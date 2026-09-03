@@ -21,7 +21,6 @@ Starts the kernel service if needed, then prints shell statements
 that apply the proxy environment to stdout. With the shell
 integration (eval "$(proxyctl init bash)"), they apply to the
 current shell; the kernel config decides the actual address.`,
-	GroupID:     manageGroup.ID,
 	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		k, err := App().Kernel()

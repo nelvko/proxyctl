@@ -26,6 +26,7 @@ itself, and verify each source against the release digest from
 the GitHub API.`,
 	Args:        cobra.MaximumNArgs(1),
 	ValidArgs:   pkernel.ImplementedNames(),
+	GroupID:     KernelGroup.ID,
 	Annotations: map[string]string{"skipRuntime": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		a, err := app.Load()

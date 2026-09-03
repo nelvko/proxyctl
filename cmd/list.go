@@ -15,6 +15,7 @@ var listCmd = &cobra.Command{
 	Short:       "List kernels",
 	Long:        `List known kernels with install and active status.`,
 	Args:        cobra.NoArgs,
+	GroupID:     KernelGroup.ID,
 	Annotations: map[string]string{"skipRuntime": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		a, err := app.Load()

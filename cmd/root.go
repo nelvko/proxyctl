@@ -21,12 +21,21 @@ var appState *app.App
 var RootCmd = &cobra.Command{
 	Use:   config.AppName,
 	Short: "Go proxy elegantly",
+	Example: `  # shell integration (once, in your shell rc):
+  eval "$(proxyctl init zsh)"
+
+  # enable / disable the proxy in the current shell:
+  proxyctl on
+  proxyctl off`,
 }
 
-// ManageGroupID returns the group ID used by management command groups.
-func ManageGroupID() string {
-	return manageGroup.ID
-}
+// Command groups: the default COMMANDS section holds the core session
+// commands (on/off/status); the rest are grouped by domain.
+var (
+	KernelGroup       = &cobra.Group{ID: "kernel", Title: "Kernel Commands"}
+	SubscriptionGroup = &cobra.Group{ID: "subscription", Title: "Subscription Commands"}
+	ShellGroup        = &cobra.Group{ID: "shell", Title: "Shell Integration"}
+)
 
 // App returns the loaded application for runtime-gated commands.
 func App() *app.App {
@@ -111,8 +120,6 @@ func isInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
-var manageGroup = &cobra.Group{ID: "manage", Title: "Management Commands"}
-
 func init() {
 	RootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if !needsRuntime(RootCmd, cmd) {
@@ -131,5 +138,5 @@ func init() {
 		appState = a
 		return nil
 	}
-	RootCmd.AddGroup(manageGroup)
+	RootCmd.AddGroup(KernelGroup, SubscriptionGroup, ShellGroup)
 }

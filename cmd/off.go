@@ -14,7 +14,6 @@ var offCmd = &cobra.Command{
 
 Stops the kernel service and prints shell statements that remove
 the proxy environment to stdout.`,
-	GroupID:     manageGroup.ID,
 	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		k, err := App().Kernel()
