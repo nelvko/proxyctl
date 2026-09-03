@@ -24,7 +24,7 @@ and the current subscription.`,
 			return err
 		}
 
-		kcfg := a.Cfg.ActiveKernel()
+		kcfg := a.Config.ActiveKernel()
 		if kcfg == nil {
 			fmt.Println("kernel:    none (run `proxyctl install`)")
 			return nil
@@ -54,8 +54,8 @@ and the current subscription.`,
 		}
 
 		profile := "none"
-		if a.Subscription.Use != "" {
-			profile = fmt.Sprintf("%s (%d total)", a.Subscription.Use, len(a.Subscription.Profiles))
+		if a.Subscriptions.Use != "" {
+			profile = fmt.Sprintf("%s (%d total)", a.Subscriptions.Use, len(a.Subscriptions.Profiles))
 		}
 		fmt.Printf("profile:   %s\n", profile)
 		return nil

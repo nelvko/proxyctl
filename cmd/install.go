@@ -37,7 +37,7 @@ the GitHub API.`,
 		// so later upgrades reuse it; InstallKernel's save persists it.
 		if ms, _ := cmd.Flags().GetStringSlice("mirror"); len(ms) > 0 {
 			httpx.SetMirrors(ms...)
-			a.Cfg.Mirror = strings.Join(ms, ",")
+			a.Config.Mirror = strings.Join(ms, ",")
 		}
 		name := ""
 		if len(args) == 1 {

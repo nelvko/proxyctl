@@ -27,7 +27,7 @@ subscription is re-applied on the new kernel.`,
 		if err := a.UseKernel(args[0]); err != nil {
 			return err
 		}
-		if a.Subscription.Use == "" {
+		if a.Subscriptions.Use == "" {
 			ui.Ok(fmt.Sprintf("kernel %q used (no active subscription, add one with `proxyctl sub add`)", args[0]))
 			return nil
 		}

@@ -20,8 +20,8 @@ import (
 // App is the loaded application state. Zero kernels is a loadable, valid
 // state — lifecycle commands operate on it directly.
 type App struct {
-	Cfg          *config.AppConfig
-	Subscription *config.SubscriptionConfig
+	Config        *config.AppConfig
+	Subscriptions *config.SubscriptionConfig
 }
 
 func Load() (*App, error) {
@@ -38,17 +38,17 @@ func Load() (*App, error) {
 	if cfg.Mirror != "" {
 		httpx.SetMirrors(strings.Split(cfg.Mirror, ",")...)
 	}
-	return &App{Cfg: cfg, Subscription: subs}, nil
+	return &App{Config: cfg, Subscriptions: subs}, nil
 }
 
 // SaveConfig persists the app config (not the subscription state).
 func (a *App) Save() error {
-	return config.SaveAppConfig(a.Cfg)
+	return config.SaveAppConfig(a.Config)
 }
 
 // Kernel returns the active kernel, or config.ErrNoKernel.
 func (a *App) Kernel() (kernel.Kernel, error) {
-	kcfg := a.Cfg.ActiveKernel()
+	kcfg := a.Config.ActiveKernel()
 	if kcfg == nil {
 		return nil, config.ErrNoKernel
 	}
@@ -61,7 +61,7 @@ func (a *App) Profiles() (*subscription.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return subscription.NewService(a.Subscription, k), nil
+	return subscription.NewService(a.Subscriptions, k), nil
 }
 
 // InstallKernel downloads the kernel, installs its user service and
@@ -110,9 +110,9 @@ func (a *App) InstallKernel(ctx context.Context, name string) error {
 		return err
 	}
 
-	a.Cfg.SetKernel(kcfg)
-	if a.Cfg.Use == "" {
-		a.Cfg.Use = kcfg.Name
+	a.Config.SetKernel(kcfg)
+	if a.Config.Use == "" {
+		a.Config.Use = kcfg.Name
 	}
 	return a.Save()
 }
@@ -121,27 +121,27 @@ func (a *App) InstallKernel(ctx context.Context, name string) error {
 // subscription on it. Re-invoking with the same name retries a failed
 // re-apply.
 func (a *App) UseKernel(name string) error {
-	if a.Cfg.KernelByName(name) == nil {
+	if a.Config.KernelByName(name) == nil {
 		return fmt.Errorf("kernel %q is not installed, run `proxyctl install %s` first", name, name)
 	}
 
 	// Stop the previously active kernel whenever it is not the target —
 	// also on the idempotent retry path, so a failed first switch (e.g.
 	// Stop failed and the old kernel still holds the port) can recover.
-	if prev := a.Cfg.ActiveKernel(); prev != nil && prev.Name != name {
+	if prev := a.Config.ActiveKernel(); prev != nil && prev.Name != name {
 		if kPrev, err := kernel.New(prev); err == nil {
 			_ = kPrev.Stop()
 		}
 	}
 
-	if a.Cfg.Use != name {
-		if active := a.Cfg.ActiveKernel(); active != nil {
+	if a.Config.Use != name {
+		if active := a.Config.ActiveKernel(); active != nil {
 			if kernel.FormatOf(active.Name) != kernel.FormatOf(name) {
 				return fmt.Errorf("kernel %q uses %s config format, incompatible with active kernel %q (%s)",
 					name, kernel.FormatOf(name), active.Name, kernel.FormatOf(active.Name))
 			}
 		}
-		a.Cfg.Use = name
+		a.Config.Use = name
 		if err := a.Save(); err != nil {
 			return err
 		}
@@ -169,7 +169,7 @@ func (a *App) UseKernel(name string) error {
 // config entry. Kernels that can no longer be constructed still get their
 // files and entry removed. If it was active, no kernel remains active.
 func (a *App) UninstallKernel(name string) error {
-	kcfg := a.Cfg.KernelByName(name)
+	kcfg := a.Config.KernelByName(name)
 	if kcfg == nil {
 		return fmt.Errorf("kernel %q is not installed", name)
 	}
@@ -185,9 +185,9 @@ func (a *App) UninstallKernel(name string) error {
 	}
 	kernel.RemoveKernelFiles(*kcfg)
 
-	a.Cfg.RemoveKernel(name)
-	if a.Cfg.Use == name {
-		a.Cfg.Use = ""
+	a.Config.RemoveKernel(name)
+	if a.Config.Use == name {
+		a.Config.Use = ""
 	}
 	return a.Save()
 }
@@ -197,9 +197,9 @@ func (a *App) UninstallKernel(name string) error {
 // was running.
 func (a *App) UpgradeKernel(ctx context.Context, name string) error {
 	if name == "" {
-		name = a.Cfg.Use
+		name = a.Config.Use
 	}
-	kcfg := a.Cfg.KernelByName(name)
+	kcfg := a.Config.KernelByName(name)
 	if kcfg == nil {
 		return fmt.Errorf("kernel %q is not installed", name)
 	}
@@ -209,7 +209,7 @@ func (a *App) UpgradeKernel(ctx context.Context, name string) error {
 	}
 
 	wasRunning := false
-	if a.Cfg.Use == name {
+	if a.Config.Use == name {
 		on, err := k.IsActive()
 		if err != nil {
 			return err

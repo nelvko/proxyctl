@@ -22,7 +22,7 @@ var listCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		for _, e := range pkernel.List(a.Cfg) {
+		for _, e := range pkernel.List(a.Config) {
 			marker := " "
 			state := "not implemented"
 			switch {
