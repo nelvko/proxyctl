@@ -42,7 +42,7 @@ func Load() (*App, error) {
 }
 
 // SaveConfig persists the app config (not the subscription state).
-func (a *App) Save() error {
+func (a *App) SaveConfig() error {
 	return config.SaveAppConfig(a.Config)
 }
 
@@ -114,7 +114,7 @@ func (a *App) InstallKernel(ctx context.Context, name string) error {
 	if a.Config.Use == "" {
 		a.Config.Use = kcfg.Name
 	}
-	return a.Save()
+	return a.SaveConfig()
 }
 
 // UseKernel switches the active kernel and re-applies the current
@@ -142,7 +142,7 @@ func (a *App) UseKernel(name string) error {
 			}
 		}
 		a.Config.Use = name
-		if err := a.Save(); err != nil {
+		if err := a.SaveConfig(); err != nil {
 			return err
 		}
 	}
@@ -189,7 +189,7 @@ func (a *App) UninstallKernel(name string) error {
 	if a.Config.Use == name {
 		a.Config.Use = ""
 	}
-	return a.Save()
+	return a.SaveConfig()
 }
 
 // UpgradeKernel replaces the kernel binary with the latest release. An
