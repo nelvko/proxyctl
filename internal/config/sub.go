@@ -52,6 +52,9 @@ func ProfilesDir() (string, error) {
 	return filepath.Join(d, "profiles"), nil
 }
 
+// SubscriptionConfig is exactly the in-memory image of subscriptions.yaml:
+// the active profile and the profile list. Same rule as AppConfig —
+// persisted fields only, nothing runtime-derived.
 type SubscriptionConfig struct {
 	Use      string    `mapstructure:"use"`
 	Profiles []Profile `mapstructure:"profiles"`

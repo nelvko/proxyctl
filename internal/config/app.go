@@ -17,6 +17,11 @@ const (
 	AppName = "proxyctl"
 )
 
+// AppConfig is exactly the in-memory image of config.yaml: every field is
+// persisted, and nothing runtime-derived belongs here. It holds proxyctl's
+// own settings — which kernel is active, what is installed, the download
+// mirror. Per-subscription settings live in SubscriptionConfig; the
+// per-invocation runtime assembly is app.App.
 type AppConfig struct {
 	// Use is the name of the active kernel.
 	Use string `mapstructure:"use"`
@@ -27,6 +32,7 @@ type AppConfig struct {
 	Mirror string `mapstructure:"mirror"`
 }
 
+// KernelConfig is one installed kernel's on-disk entry.
 type KernelConfig struct {
 	Name       string `mapstructure:"name"`
 	Bin        string `mapstructure:"bin"`
