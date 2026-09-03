@@ -20,7 +20,10 @@ var appState *app.App
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   config.AppName,
-	Short: "Go proxy elegantly",
+	Short: "Terminal-native proxy manager",
+	Long: `proxyctl installs and manages proxy kernels — mihomo, sing-box or
+any community fork — as rootless user services, keeps subscriptions
+up to date, and wires the proxy into your shell.`,
 	Example: `  # shell integration (once, in your shell rc):
   eval "$(proxyctl init zsh)"
 
