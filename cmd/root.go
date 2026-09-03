@@ -29,12 +29,15 @@ var RootCmd = &cobra.Command{
   proxyctl off`,
 }
 
-// Command groups: the default COMMANDS section holds the core session
-// commands (on/off/status); the rest are grouped by domain.
+// Command-group rules (stable under growth):
+//   - default COMMANDS section: session actions (on/off/status) and domain
+//     entry points (sub, and future node/tun/ui) — each new domain adds
+//     exactly one line here, never a new group;
+//   - KernelGroup: verbs managing the default object's lifecycle;
+//   - ShellGroup: one-time shell integration and its helpers.
 var (
-	KernelGroup       = &cobra.Group{ID: "kernel", Title: "Kernel Commands"}
-	SubscriptionGroup = &cobra.Group{ID: "subscription", Title: "Subscription Commands"}
-	ShellGroup        = &cobra.Group{ID: "shell", Title: "Shell Integration"}
+	KernelGroup = &cobra.Group{ID: "kernel", Title: "Kernel Commands"}
+	ShellGroup  = &cobra.Group{ID: "shell", Title: "Shell Integration"}
 )
 
 // App returns the loaded application for runtime-gated commands.
@@ -138,5 +141,5 @@ func init() {
 		appState = a
 		return nil
 	}
-	RootCmd.AddGroup(KernelGroup, SubscriptionGroup, ShellGroup)
+	RootCmd.AddGroup(KernelGroup, ShellGroup)
 }

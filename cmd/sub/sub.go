@@ -14,7 +14,6 @@ var subCmd = &cobra.Command{
 	Long: `Manage subscription profiles.
 
 Run without a subcommand to open the TUI.`,
-	GroupID: rootcmd.SubscriptionGroup.ID,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := profiles()
 		if err != nil {
