@@ -94,7 +94,7 @@ func (m Mihomo) TestConfig(configFile string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("test config timed out after %s — mihomo may be downloading geodata (GeoSite.dat/GeoIP.dat) on a blocked route; pre-seed ~/.config/proxyctl/%s/ via a mirror and retry:\n%s", configTestTimeout, m.cfg.Name, out)
+			return fmt.Errorf("test config timed out after %s — mihomo may be downloading geodata (GeoSite.dat/GeoIP.dat) on a blocked route; pre-seed %s/ via a mirror and retry:\n%s", configTestTimeout, m.cfg.ConfigDir, out)
 		}
 		return fmt.Errorf("test config: \n%s", out)
 	}

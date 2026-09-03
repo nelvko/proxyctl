@@ -122,7 +122,7 @@ func (a *App) InstallKernel(ctx context.Context, name string) error {
 // re-apply.
 func (a *App) UseKernel(name string) error {
 	if a.Cfg.KernelByName(name) == nil {
-		return fmt.Errorf("kernel %q is not installed, run `proxyctl kernel install %s` first", name, name)
+		return fmt.Errorf("kernel %q is not installed, run `proxyctl install %s` first", name, name)
 	}
 
 	// Stop the previously active kernel whenever it is not the target —

@@ -11,8 +11,8 @@ var editCmd = &cobra.Command{
 	Short: "Edit a subscription profile",
 	Long: `Edit a subscription profile via editor.
 
-	With --editor or $EDITOR to specify the editor command. The edited
-profile will be test after the editor exits.`,
+Use --editor or $EDITOR to specify the editor command. The edited
+profile is validated after the editor exits.`,
 	Args: validArgWithInteractive,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profiles, err := profiles()

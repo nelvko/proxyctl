@@ -51,7 +51,7 @@ func App() *app.App {
 // PickKernel prompts for an installable kernel.
 func PickKernel() (string, error) {
 	if !isInteractive() {
-		return "", fmt.Errorf("no terminal available, run `proxyctl kernel install <name>` instead")
+		return "", fmt.Errorf("no terminal available, run `proxyctl install <name>` instead")
 	}
 	implemented := pkernel.ImplementedNames()
 	if len(implemented) == 0 {
@@ -105,7 +105,7 @@ func needsRuntime(root, cmd *cobra.Command) bool {
 // it degrades to a plain hint there.
 func ensureKernel(ctx context.Context, a *app.App) error {
 	if !isInteractive() || os.Getenv("PROXYCTL_WRAPPED") != "" {
-		return fmt.Errorf("no kernel installed, run `proxyctl kernel install` first")
+		return fmt.Errorf("no kernel installed, run `proxyctl install` first")
 	}
 	name, err := PickKernel()
 	if err != nil {

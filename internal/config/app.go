@@ -97,7 +97,7 @@ func LoadAppConfig() (*AppConfig, error) {
 	// The config predates the multi-kernel format; refuse loudly instead
 	// of silently seeing zero kernels.
 	if len(cfg.Kernels) == 0 && appV.IsSet("kernel") {
-		return nil, fmt.Errorf("%s uses the old single-kernel format, remove it and run `proxyctl kernel install`", path)
+		return nil, fmt.Errorf("%s uses the old single-kernel format, remove it and run `proxyctl install`", path)
 	}
 	return cfg, nil
 }

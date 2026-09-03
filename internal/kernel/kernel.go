@@ -3,13 +3,15 @@ package kernel
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/unisvc"
 )
 
 // ErrUpToDate reports that the installed kernel already is the latest
-// release; callers treat it as success with nothing to do.
+// release; callers treat it as success — the download step is done, but
+// install still converges the service setup afterwards.
 var ErrUpToDate = errors.New("kernel is already the latest version")
 
 // ConfigFormat is the subscription config format a kernel understands.
@@ -145,6 +147,6 @@ func New(kernelCfg *config.KernelConfig) (Kernel, error) {
 	case clash, singbox:
 		return nil, fmt.Errorf("kernel %q is not supported yet", kernelCfg.Name)
 	default:
-		return nil, fmt.Errorf("unknown kernel %q, available: mihomo, clash, sing-box", kernelCfg.Name)
+		return nil, fmt.Errorf("unknown kernel %q, known kernels: %s (implemented: %s)", kernelCfg.Name, strings.Join(Names(), ", "), strings.Join(ImplementedNames(), ", "))
 	}
 }

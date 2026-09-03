@@ -39,8 +39,13 @@ func managedRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{
+	roots := []string{
 		filepath.Join(home, ".local", "share", config.AppName),
-		filepath.Join(home, ".config", config.AppName),
 	}
+	// The config root DefaultConfig uses (os.UserConfigDir — ~/.config on
+	// Linux, ~/Library/Application Support on macOS).
+	if cfgDir, err := os.UserConfigDir(); err == nil {
+		roots = append(roots, filepath.Join(cfgDir, config.AppName))
+	}
+	return roots
 }

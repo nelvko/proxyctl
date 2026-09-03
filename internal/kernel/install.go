@@ -29,17 +29,25 @@ const downloadTimeout = 30 * time.Minute
 
 // DefaultConfig returns the default on-disk layout for a kernel:
 // binary under ~/.local/share/proxyctl/kernels/<name>/,
-// config under ~/.config/proxyctl/<name>/.
+// config under $(os.UserConfigDir)/proxyctl/<name>/ — the same root as
+// proxyctl's own config, so there is exactly one config root per platform.
 func DefaultConfig(name string) config.KernelConfig {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
 	}
+	bin := filepath.Join(home, ".local", "share", config.AppName, "kernels", name, name)
+
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		cfgDir = filepath.Join(home, ".config")
+	}
+	kcfgDir := filepath.Join(cfgDir, config.AppName, name)
 	return config.KernelConfig{
 		Name:       name,
-		Bin:        filepath.Join(home, ".local", "share", config.AppName, "kernels", name, name),
-		ConfigDir:  filepath.Join(home, ".config", config.AppName, name),
-		ConfigFile: filepath.Join(home, ".config", config.AppName, name, "config.yaml"),
+		Bin:        bin,
+		ConfigDir:  kcfgDir,
+		ConfigFile: filepath.Join(kcfgDir, "config.yaml"),
 	}
 }
 

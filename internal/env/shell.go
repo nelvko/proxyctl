@@ -49,7 +49,7 @@ func Resolve(configFile string) (ProxyEnv, error) {
 		return ProxyEnv{}, fmt.Errorf("no usable inbound port in %s (need mixed-port, port or socks-port)", configFile)
 	}
 
-	// Old clashctl chain: mixed-port first, then the dedicated ports.
+	// Optional user:pass from the first authentication entry.
 	authPrefix := ""
 	if len(kc.Authentication) > 0 {
 		user, pass, _ := strings.Cut(kc.Authentication[0], ":")
@@ -68,6 +68,8 @@ func Resolve(configFile string) (ProxyEnv, error) {
 	return e, nil
 }
 
+// Port chain from the old clashctl: mixed-port first, then the dedicated
+// ports. -1 (explicitly disabled) falls through like absent.
 func (kc inboundConfig) httpPort() int {
 	if kc.MixedPort > 0 {
 		return kc.MixedPort

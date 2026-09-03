@@ -200,7 +200,7 @@ func (s *Service) Use(profileName string) error {
 		return err
 	}
 	// Keep the old bytes so a failed restart can restore them — otherwise
-	// the kernel runs the new subscription while profiles.yaml still
+	// the kernel runs the new subscription while subscriptions.yaml still
 	// points at the old one.
 	old, oldErr := os.ReadFile(kernelCfg)
 	if err := os.WriteFile(kernelCfg, newBytes, 0o644); err != nil {

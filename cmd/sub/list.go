@@ -9,7 +9,7 @@ import (
 
 // lsCmd represents the ls command
 var lsCmd = &cobra.Command{
-	Use:     "list [name]",
+	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List subscription profiles",
 	Long:    ``,
