@@ -174,7 +174,12 @@ func (a *App) UninstallKernel(name string) error {
 		return fmt.Errorf("kernel %q is not installed", name)
 	}
 	if k, err := kernel.New(kcfg); err == nil {
-		_ = k.Stop()
+		// Propagate: a failed stop leaves a process holding the port while
+		// the unit and binary vanish below — a ghost. systemctl stop on an
+		// already-stopped unit succeeds, so this only fails on real errors.
+		if err := k.Stop(); err != nil {
+			return err
+		}
 		if err := k.Uninstall(); err != nil {
 			return err
 		}
@@ -183,7 +188,9 @@ func (a *App) UninstallKernel(name string) error {
 		// removed.
 		_ = unisvc.New(kcfg.Name, unisvc.WithScope(unisvc.ScopeUser)).Uninstall()
 	}
-	kernel.RemoveKernelFiles(*kcfg)
+	if err := kernel.RemoveKernelFiles(*kcfg); err != nil {
+		return err
+	}
 
 	a.Config.RemoveKernel(name)
 	if a.Config.Use == name {

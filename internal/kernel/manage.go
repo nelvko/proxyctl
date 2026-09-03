@@ -1,6 +1,8 @@
 package kernel
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,20 +10,30 @@ import (
 	"github.com/nelvko/proxyctl/internal/config"
 )
 
-// RemoveKernelFiles deletes the kernel's files. Directories are only
-// removed wholesale when they live under proxyctl's own roots — the config
-// is user-editable, so a hand-written Bin like /usr/local/bin/mihomo must
-// not nuke /usr/local/bin.
-func RemoveKernelFiles(kcfg config.KernelConfig) {
+// RemoveKernelFiles deletes the kernel's on-disk footprint: its config
+// directory (config.yaml, geodata, runtime cache — the whole kernel-owned
+// directory, so files the kernel or the user dropped beside the config go
+// too) and the binary. Directories are only removed wholesale when they
+// live under proxyctl's own roots — the config is user-editable, so a
+// hand-written Bin like /usr/local/bin/mihomo must not nuke /usr/local/bin.
+// A missing file is not an error.
+func RemoveKernelFiles(kcfg config.KernelConfig) error {
 	if underManagedRoot(kcfg.ConfigDir) {
-		_ = os.RemoveAll(kcfg.ConfigDir)
+		if err := os.RemoveAll(kcfg.ConfigDir); err != nil {
+			return fmt.Errorf("remove %s: %w", kcfg.ConfigDir, err)
+		}
 	}
 	binDir := filepath.Dir(kcfg.Bin)
 	if underManagedRoot(binDir) {
-		_ = os.RemoveAll(binDir)
-	} else {
-		_ = os.Remove(kcfg.Bin)
+		if err := os.RemoveAll(binDir); err != nil {
+			return fmt.Errorf("remove %s: %w", binDir, err)
+		}
+		return nil
 	}
+	if err := os.Remove(kcfg.Bin); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove %s: %w", kcfg.Bin, err)
+	}
+	return nil
 }
 
 func underManagedRoot(path string) bool {
