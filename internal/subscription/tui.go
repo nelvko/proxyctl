@@ -75,6 +75,7 @@ type keyMap struct {
 	Edit      key.Binding
 	Delete    key.Binding
 	Use       key.Binding
+	Quit      key.Binding
 	Refresh   key.Binding
 }
 
@@ -102,6 +103,10 @@ var keys = keyMap{
 	Use: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "use"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q"),
+		key.WithHelp("q", "quit"),
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("u"),
@@ -154,6 +159,7 @@ func initialModel(profiles *Service) model {
 	m.list.SetShowHelp(false)
 	m.list.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
+			keys.Quit,
 			keys.Edit,
 			keys.Add,
 			keys.Delete,
@@ -346,6 +352,8 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 					return useFinishedMsg{}
 				},
 			)
+		case key.Matches(msg, keys.Quit):
+			return tea.Quit
 		case key.Matches(msg, keys.More):
 			m.list.SetShowHelp(!m.list.ShowHelp())
 		}
