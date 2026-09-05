@@ -16,6 +16,9 @@ Stops the kernel service and prints shell statements that remove
 the proxy environment to stdout.`,
 	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireShellIntegration(cmd.Name()); err != nil {
+			return err
+		}
 		k, err := App().Kernel()
 		if err != nil {
 			return err

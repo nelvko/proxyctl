@@ -21,9 +21,9 @@ var appState *app.App
 var RootCmd = &cobra.Command{
 	Use:   config.AppName,
 	Short: "Terminal-native proxy manager",
-	Long: `proxyctl installs and manages proxy kernels — mihomo, sing-box or
-any community fork — as rootless user services, keeps subscriptions
-up to date, and wires the proxy into your shell.`,
+	Long: `proxyctl installs and manages proxy kernels (mihomo today, more on
+the way) as rootless user services, updates subscriptions on demand,
+and wires the proxy into your shell.`,
 	Example: `  # shell integration (once, in your shell rc):
   eval "$(proxyctl init zsh)"
 
@@ -51,7 +51,7 @@ func App() *app.App {
 // PickKernel prompts for an installable kernel.
 func PickKernel() (string, error) {
 	if !isInteractive() {
-		return "", fmt.Errorf("no terminal available, run `proxyctl install <name>` instead")
+		return "", fmt.Errorf("no terminal available, run `proxyctl kernel install <name>` instead")
 	}
 	implemented := pkernel.ImplementedNames()
 	if len(implemented) == 0 {
@@ -105,7 +105,7 @@ func needsRuntime(root, cmd *cobra.Command) bool {
 // it degrades to a plain hint there.
 func ensureKernel(ctx context.Context, a *app.App) error {
 	if !isInteractive() || os.Getenv("PROXYCTL_WRAPPED") != "" {
-		return fmt.Errorf("no kernel installed, run `proxyctl install` first")
+		return fmt.Errorf("no kernel installed, run `proxyctl kernel install` first")
 	}
 	name, err := PickKernel()
 	if err != nil {
@@ -124,6 +124,29 @@ func ensureKernel(ctx context.Context, a *app.App) error {
 
 func isInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// requireShellIntegration guards the eval-fed commands: when a human runs
+// `proxyctl on` bare (no wrapper, stdout a terminal) the export statements
+// would just scroll by without touching the environment — point at the
+// integration instead, like conda does for `conda activate`.
+func requireShellIntegration(cmdName string) error {
+	if os.Getenv("PROXYCTL_WRAPPED") != "" {
+		return nil
+	}
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		shell := defaultShell()
+		return fmt.Errorf("load the shell integration first:\n  %s\nthen re-run: proxyctl %s", integrationCmd(shell), cmdName)
+	}
+	return nil
+}
+
+// integrationCmd is the load command for the shell, as printed in guidance.
+func integrationCmd(shell string) string {
+	if shell == "fish" {
+		return "proxyctl init fish | source"
+	}
+	return fmt.Sprintf("eval \"$(proxyctl init %s)\"", shell)
 }
 
 func init() {

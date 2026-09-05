@@ -23,6 +23,9 @@ integration (eval "$(proxyctl init bash)"), they apply to the
 current shell; the kernel config decides the actual address.`,
 	Annotations: map[string]string{"shellEval": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireShellIntegration(cmd.Name()); err != nil {
+			return err
+		}
 		k, err := App().Kernel()
 		if err != nil {
 			return err
