@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -21,7 +22,7 @@ func initialAddForm(profiles *Service, draft *profile) *huh.Form {
 				Validate(validateSourceURL),
 			huh.NewInput().
 				Title("Profile Name").
-				Description(descStyle.Render("Optional; defaults to the current Unix timestamp")).
+				Description(descStyle.Render("Optional; defaults to the current Unix timestamp · esc cancels")).
 				Validate(profiles.CheckNameAvailable).
 				Value(&draft.Name),
 		),
@@ -47,7 +48,11 @@ func validateSourceURL(raw string) error {
 }
 
 func PromptAdd(profiles *Service, draft *profile) error {
-	if err := initialAddForm(profiles, draft).Run(); err != nil {
+	// Standalone run: esc cancels (the embedded-in-TUI form gets the same
+	// via our EscCancel handler; q stays typeable in the input fields).
+	km := huh.NewDefaultKeyMap()
+	km.Quit = key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "cancel"))
+	if err := initialAddForm(profiles, draft).WithKeyMap(km).Run(); err != nil {
 		return err
 	}
 	return nil

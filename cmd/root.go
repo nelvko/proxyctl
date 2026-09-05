@@ -73,6 +73,9 @@ func PickKernel(title string) (string, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title(title).
+				// huh's footer only shows field bindings, never the
+				// form-level Quit — the key must be advertised here.
+				Description("q to cancel").
 				Options(options...).
 				Value(&name),
 		),

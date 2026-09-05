@@ -1,8 +1,11 @@
 package sub
 
 import (
+	"errors"
 	"fmt"
 	"time"
+
+	"charm.land/huh/v2"
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/subscription"
@@ -33,6 +36,10 @@ profile, it becomes active automatically.`,
 		}
 		if interactive {
 			if err := subscription.PromptAdd(profiles, draft); err != nil {
+				if errors.Is(err, huh.ErrUserAborted) {
+					ui.Err("cancelled")
+					return nil
+				}
 				return err
 			}
 		} else {
