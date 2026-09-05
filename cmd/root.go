@@ -48,8 +48,9 @@ func App() *app.App {
 	return appState
 }
 
-// PickKernel prompts for an installable kernel.
-func PickKernel() (string, error) {
+// PickKernel prompts for an installable kernel; title states the context
+// (why the user is being asked).
+func PickKernel(title string) (string, error) {
 	if !isInteractive() {
 		return "", fmt.Errorf("no terminal available, run `proxyctl install <name>` instead")
 	}
@@ -66,7 +67,7 @@ func PickKernel() (string, error) {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("No kernel installed — pick one to download").
+				Title(title).
 				Options(options...).
 				Value(&name),
 		),
@@ -107,7 +108,7 @@ func ensureKernel(ctx context.Context, a *app.App) error {
 	if !isInteractive() || os.Getenv("PROXYCTL_WRAPPED") != "" {
 		return fmt.Errorf("no kernel installed, run `proxyctl install` first")
 	}
-	name, err := PickKernel()
+	name, err := PickKernel("No kernel installed — pick one to download")
 	if err != nil {
 		return err
 	}

@@ -43,7 +43,7 @@ the GitHub API.`,
 		if len(args) == 1 {
 			name = args[0]
 		} else {
-			name, err = PickKernel()
+			name, err = PickKernel("Select a kernel to install")
 			if err != nil {
 				return err
 			}
