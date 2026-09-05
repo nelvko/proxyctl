@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/config"
@@ -64,6 +65,10 @@ func PickKernel(title string) (string, error) {
 	}
 
 	var name string
+	km := huh.NewDefaultKeyMap()
+	// q quits a pure select (no inputs to steal the key from), matching the
+	// list TUI; huh's default is ctrl+c only.
+	km.Quit = key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit"))
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
@@ -71,7 +76,7 @@ func PickKernel(title string) (string, error) {
 				Options(options...).
 				Value(&name),
 		),
-	)
+	).WithKeyMap(km)
 	if err := form.Run(); err != nil {
 		return "", err
 	}
@@ -110,6 +115,9 @@ func ensureKernel(ctx context.Context, a *app.App) error {
 	}
 	name, err := PickKernel("No kernel installed — pick one to download")
 	if err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			return errors.New("no kernel selected")
+		}
 		return err
 	}
 	if err := a.InstallKernel(ctx, name); err != nil {
