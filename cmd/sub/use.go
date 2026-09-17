@@ -1,37 +1,33 @@
 package sub
 
 import (
-	"fmt"
-
-	"github.com/nelvko/proxyctl/internal/subscription"
+	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-// useCmd represents the use command
-var useCmd = &cobra.Command{
-	Use:   "use <name>",
-	Short: "Use a subscription profile",
-	Long:  `Use the specified subscription profile for the proxy kernel.`,
-	Args:  validArgWithInteractive,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles, err := profiles()
-		if err != nil {
-			return err
-		}
-		if interactive {
-			return subscription.TUI(profiles)
-		}
-		profileName := args[0]
-		if err := profiles.Use(profileName); err != nil {
-			return err
-		}
-		ui.Ok(fmt.Sprintf("profile %q used successfully", profileName))
-		return nil
-
-	},
-}
-
-func init() {
-	subCmd.AddCommand(useCmd)
+func newUseCmd() *cobra.Command {
+	return &cobra.Command{
+		Use: "use [name]", Short: "Select and apply a subscription profile",
+		Long: `Select a profile and apply its configuration. A running kernel is restarted;
+a stopped kernel stays stopped. Run proxyctl on to enable the proxy in your shell.
+Without a name, select a profile interactively.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: mutation(func(cmd *cobra.Command, args []string) error {
+			svc, err := app.LoadRuntimeProfiles(cmd.Context(), ui.Reporter(cmd.ErrOrStderr()))
+			if err != nil {
+				return err
+			}
+			name, err := selectProfile(cmd, args, svc)
+			if err != nil {
+				return cancelled(cmd, err)
+			}
+			result, err := svc.Use(name)
+			if err != nil {
+				return err
+			}
+			cmd.Printf("profile %q selected; %s\n", name, ui.Application(result))
+			return nil
+		}),
+	}
 }

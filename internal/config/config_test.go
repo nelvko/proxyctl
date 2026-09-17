@@ -25,9 +25,9 @@ func writeTestFile(t *testing.T, name, content string) {
 	}
 }
 
-func TestAppConfigRoundTrip(t *testing.T) {
+func TestConfigRoundTrip(t *testing.T) {
 	dir := useTestDir(t)
-	cfg := &AppConfig{
+	cfg := &Config{
 		Use: "mihomo",
 		Kernels: []KernelConfig{{
 			Name:       "mihomo",
@@ -36,18 +36,18 @@ func TestAppConfigRoundTrip(t *testing.T) {
 			ConfigFile: "/c/config.yaml",
 		}},
 	}
-	if err := SaveAppConfig(cfg); err != nil {
-		t.Fatalf("SaveAppConfig() error = %v", err)
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
 	}
 
-	got, err := LoadAppConfig()
+	got, err := Load()
 	if err != nil {
-		t.Fatalf("LoadAppConfig() error = %v", err)
+		t.Fatalf("Load() error = %v", err)
 	}
 	if got.Use != "mihomo" || len(got.Kernels) != 1 || got.Kernels[0].Bin != "/b/mihomo" {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
-	if got.ActiveKernel() == nil || got.KernelByName("mihomo") == nil {
+	if got.SelectedKernel() == nil || got.KernelByName("mihomo") == nil {
 		t.Fatalf("lookups failed after round-trip: %+v", got)
 	}
 
@@ -61,22 +61,22 @@ func TestAppConfigRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadAppConfigMissing(t *testing.T) {
+func TestLoadMissing(t *testing.T) {
 	useTestDir(t)
-	got, err := LoadAppConfig()
+	got, err := Load()
 	if err != nil {
-		t.Fatalf("LoadAppConfig() on missing file: %v", err)
+		t.Fatalf("Load() on missing file: %v", err)
 	}
-	if got.ActiveKernel() != nil {
-		t.Fatalf("ActiveKernel() = %+v, want nil", got.ActiveKernel())
+	if got.SelectedKernel() != nil {
+		t.Fatalf("SelectedKernel() = %+v, want nil", got.SelectedKernel())
 	}
 }
 
-func TestLoadAppConfigLegacy(t *testing.T) {
+func TestLoadLegacy(t *testing.T) {
 	writeTestFile(t, "config.yaml", "use: mihomo\nkernel:\n  name: mihomo\n")
-	_, err := LoadAppConfig()
+	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "single-kernel") {
-		t.Fatalf("LoadAppConfig(legacy) error = %v, want single-kernel format error", err)
+		t.Fatalf("Load(legacy) error = %v, want single-kernel format error", err)
 	}
 }
 
@@ -88,10 +88,9 @@ func TestSubConfigRoundTrip(t *testing.T) {
 			Name: "a",
 			URL:  "https://example.com/sub?token=x",
 			File: "/p/a.yaml",
-			Update: UpdateConfig{
-				Timeout:  5 * time.Minute,
-				Interval: 24 * time.Hour,
-				Headers:  map[string]string{"Authorization": "Bearer t"},
+			Download: DownloadConfig{
+				Timeout: 5 * time.Minute,
+				Headers: map[string]string{"Authorization": "Bearer t"},
 			},
 		}},
 	}
@@ -107,13 +106,13 @@ func TestSubConfigRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
 	p := got.Profiles[0]
-	if p.Update.Timeout != 5*time.Minute || p.Update.Interval != 24*time.Hour {
-		t.Fatalf("durations lost in round-trip: %+v", p.Update)
+	if p.Download.Timeout != 5*time.Minute {
+		t.Fatalf("durations lost in round-trip: %+v", p.Download)
 	}
 	// viper lowercases map keys; HTTP headers are case-insensitive so the
 	// value survives (this lossiness disappears once viper is dropped).
-	if p.Update.Headers["authorization"] != "Bearer t" {
-		t.Fatalf("headers lost in round-trip: %+v", p.Update)
+	if p.Download.Headers["authorization"] != "Bearer t" {
+		t.Fatalf("headers lost in round-trip: %+v", p.Download)
 	}
 }
 

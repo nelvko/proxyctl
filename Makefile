@@ -1,53 +1,29 @@
-VM      := proxyctl-test
-BIN     := $(HOME)/pc-e2e/proxyctl
-FIXTURE := $(CURDIR)/test/e2e-minimal.yaml
+.DEFAULT_GOAL := build
+GO ?= go
+GOARCH ?= $(shell $(GO) env GOARCH)
+BUILD_DIR ?= $(CURDIR)/dist
+BIN := $(BUILD_DIR)/proxyctl
+LINUX_BIN := $(BUILD_DIR)/proxyctl-linux-$(GOARCH)
 
-.PHONY: vm build-linux vet test smoke verify e2e e2e-reset e2e-shell shell
+.PHONY: build build-linux vet test smoke verify
+build:
+	mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BIN) .
 
-e2e-shell: build-linux vm ## shell-integration E2E in the VM (bash)
-	orb -m $(VM) bash -ic '\
-	  eval "$$(proxyctl init bash)" && \
-	  type proxyctl | head -1 && \
-	  proxyctl on && \
-	  test $$(env | grep -c "127.0.0.1:7890") -ge 4 && \
-	  curl -sx http://127.0.0.1:7890 -o /dev/null -w "proxy: %{http_code}\n" -m 15 http://www.baidu.com && \
-	  proxyctl off && \
-	  test $$(env | grep -c "HTTP_PROXY") -eq 0 && \
-	  echo SHELL_E2E_GREEN'
+build-linux:
+	mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=$(GOARCH) $(GO) build -o $(LINUX_BIN) .
 
-shell: build-linux vm ## interactive shell in the OrbStack VM (proxyctl on PATH)
-	@echo ">> try: proxyctl list | proxyctl sub (TUI) | proxyctl on"
-	orb -m $(VM)
+vet:
+	$(GO) vet ./...
+	GOOS=linux $(GO) vet ./...
 
-vm: ## ensure the OrbStack test machine exists
-	@orb list | grep -q "$(VM)" || orb create debian $(VM)
+test:
+	$(GO) test ./...
 
-build-linux: ## cross-compile the linux binary and verify it is ELF
-	GOOS=linux go build -o $(BIN) .
-	@head -c 4 $(BIN) | od -An -tx1 | tr -d ' \n' | grep -q "^7f454c46" || { echo "NOT ELF (GOOS=linux missing?)"; exit 1; }
-	@echo "linux binary: $(BIN)"
+smoke: build
+	sh scripts/smoke.sh $(BIN)
 
-vet: ## vet both platforms
-	go vet ./... && GOOS=linux go vet ./...
+verify: vet test smoke build-linux
 
-test: ## unit tests
-	go test ./...
-
-smoke: build-linux ## command-surface smoke in an alpine container
-	docker run --rm -v $(BIN):/p:ro alpine /p list
-
-verify: vet test smoke ## everything that needs no systemd
-
-e2e: build-linux vm ## read-only run on the OrbStack VM
-	orb -m $(VM) bash -c '$(BIN) status; $(BIN) list; $(BIN) sub list'
-
-e2e-reset: build-linux vm ## wipe VM state, fresh install + subscription + proxy check
-	orb -m $(VM) bash -c '\
-	  $(BIN) uninstall mihomo 2>/dev/null; \
-	  rm -rf ~/.config/proxyctl; \
-	  $(BIN) install mihomo && \
-	  $(BIN) sub add file://$(FIXTURE) -n e2e && \
-	  systemctl --user is-active mihomo.service && \
-	  sleep 2 && \
-	  curl -sx http://127.0.0.1:7890 -o /dev/null -w "proxy check: %{http_code}\n" -m 15 http://www.baidu.com'
-	@echo "note: HTTPS through the minimal DIRECT-only fixture is flaky mihomo behavior; real subscriptions carry full dns/proxies config."
+include make/orbstack.mk

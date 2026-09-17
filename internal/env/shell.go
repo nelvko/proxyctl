@@ -1,106 +1,10 @@
-// Package env derives the proxy shell environment from the active kernel
-// config and renders it as shell statements.
 package env
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
-
-	"go.yaml.in/yaml/v3"
 )
-
-// ProxyEnv is the shell environment a running kernel exposes.
-type ProxyEnv struct {
-	HTTP  string
-	HTTPS string
-	All   string
-	NO    string
-}
-
-const noProxyValue = "localhost,127.0.0.1,::1,.local"
-
-// inboundConfig is the subset of a clash-family kernel config that
-// determines the proxy endpoints.
-type inboundConfig struct {
-	MixedPort      int      `yaml:"mixed-port"`
-	Port           int      `yaml:"port"`
-	SocksPort      int      `yaml:"socks-port"`
-	Bind           string   `yaml:"bind-address"`
-	AllowLan       bool     `yaml:"allow-lan"`
-	Authentication []string `yaml:"authentication"`
-}
-
-// Resolve derives the proxy endpoints from a clash-family kernel config.
-// Port semantics follow mihomo: absent or -1 means disabled.
-func Resolve(configFile string) (ProxyEnv, error) {
-	raw, err := os.ReadFile(configFile)
-	if err != nil {
-		return ProxyEnv{}, fmt.Errorf("read kernel config: %w", err)
-	}
-	var kc inboundConfig
-	if err := yaml.Unmarshal(raw, &kc); err != nil {
-		return ProxyEnv{}, fmt.Errorf("parse kernel config: %w", err)
-	}
-
-	httpPort, socksPort := kc.httpPort(), kc.socksPort()
-	if httpPort == 0 && socksPort == 0 {
-		return ProxyEnv{}, fmt.Errorf("no usable inbound port in %s (need mixed-port, port or socks-port)", configFile)
-	}
-
-	// Optional user:pass from the first authentication entry.
-	authPrefix := ""
-	if len(kc.Authentication) > 0 {
-		user, pass, _ := strings.Cut(kc.Authentication[0], ":")
-		authPrefix = url.UserPassword(user, pass).String() + "@"
-	}
-
-	e := ProxyEnv{NO: noProxyValue}
-	if httpPort != 0 {
-		e.HTTP = fmt.Sprintf("http://%s%s:%d", authPrefix, kc.host(), httpPort)
-		e.HTTPS = e.HTTP
-	}
-	if socksPort != 0 {
-		// socks5h: resolve hostnames on the proxy side.
-		e.All = fmt.Sprintf("socks5h://%s%s:%d", authPrefix, kc.host(), socksPort)
-	}
-	return e, nil
-}
-
-// Port chain from the old clashctl: mixed-port first, then the dedicated
-// ports. -1 (explicitly disabled) falls through like absent.
-func (kc inboundConfig) httpPort() int {
-	if kc.MixedPort > 0 {
-		return kc.MixedPort
-	}
-	if kc.Port > 0 {
-		return kc.Port
-	}
-	return 0
-}
-
-func (kc inboundConfig) socksPort() int {
-	if kc.MixedPort > 0 {
-		return kc.MixedPort
-	}
-	if kc.SocksPort > 0 {
-		return kc.SocksPort
-	}
-	return 0
-}
-
-func (kc inboundConfig) host() string {
-	switch {
-	case !kc.AllowLan:
-		return "127.0.0.1"
-	case kc.Bind == "", kc.Bind == "*", kc.Bind == "+":
-		// Listening on all interfaces; loopback is the right client target.
-		return "127.0.0.1"
-	default:
-		return kc.Bind
-	}
-}
 
 // Shell reports the calling shell family. The shell integration exports
 // PROXYCTL_SHELL, which wins over marker detection (FISH_VERSION is not
@@ -126,6 +30,11 @@ func (e ProxyEnv) Export(shell string) []string {
 	var lines []string
 	add := func(key, value string) {
 		if value == "" {
+			if shell == "fish" {
+				lines = append(lines, fmt.Sprintf("set -e %s", key), fmt.Sprintf("set -e %s", lower(key)))
+			} else {
+				lines = append(lines, fmt.Sprintf("unset %s", key), fmt.Sprintf("unset %s", lower(key)))
+			}
 			return
 		}
 		// Single quotes: no parameter or command expansion in any of the

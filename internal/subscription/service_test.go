@@ -1,8 +1,8 @@
 package subscription
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,27 +24,33 @@ type fakeKernel struct {
 	stopped  bool
 }
 
-func (f *fakeKernel) ConfigFile() string                { return f.cfgFile }
+func (f *fakeKernel) ConfigFile() string { return f.cfgFile }
+
 func (f *fakeKernel) ConfigFormat() kernel.ConfigFormat { return kernel.FormatClash }
+
 func (f *fakeKernel) LatestArtifact() (*kernel.Artifact, error) {
 	return nil, errors.New("not needed")
 }
-func (f *fakeKernel) InstalledVersion() (string, error) {
+
+func (f *fakeKernel) InstalledVersion(ctx context.Context) (string, error) {
 	return "", errors.New("not needed")
 }
+
 func (f *fakeKernel) IsActive() (bool, error) { return !f.stopped, nil }
+
 func (f *fakeKernel) Restart() error {
 	f.restarts++
+	f.stopped = false
 	return nil
 }
 
-func (f *fakeKernel) TestConfig(file string) error {
+func (f *fakeKernel) TestConfig(ctx context.Context, file string) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(string(b), "proxies:") {
-		return fmt.Errorf("invalid config: no proxies key")
+		return &kernel.ConfigValidationError{Output: "invalid config: no proxies key"}
 	}
 	return nil
 }
@@ -52,11 +58,26 @@ func (f *fakeKernel) TestConfig(file string) error {
 // newTestService wires a service against an isolated config root.
 func newTestService(t *testing.T) (*Service, *fakeKernel) {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
 
 	k := &fakeKernel{cfgFile: filepath.Join(t.TempDir(), "kernel-config.yaml")}
 	return NewService(&config.SubscriptionConfig{}, k), k
 }
+
+func addTestProfile(svc *Service, draft *profile) error {
+	if err := svc.Add(draft); err != nil {
+		return err
+	}
+	if svc.SelectedName() == "" {
+		_, err := svc.Use(draft.Name)
+		return err
+	}
+	return nil
+}
+
+func (f *fakeKernel) Stop() error { f.stopped = true; return nil }
 
 func writeFile(t *testing.T, path, content string) string {
 	t.Helper()
@@ -66,197 +87,10 @@ func writeFile(t *testing.T, path, content string) string {
 	return path
 }
 
-func TestUpdateRefreshesProfileFromFileSource(t *testing.T) {
-	svc, _ := newTestService(t)
-
-	src := filepath.Join(t.TempDir(), "sub.yaml")
-	writeFile(t, src, "proxies: [a]\n")
-	draft := &profile{Name: "p1", URL: "file://" + src}
-	if err := svc.Add(draft); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
-
-	writeFile(t, src, "proxies: [b]\n")
-	if err := svc.Update("p1"); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	got, err := os.ReadFile(draft.File)
+func (f *fakeKernel) ProxyEndpoints() (kernel.Endpoints, error) {
+	k, err := kernel.New(&config.KernelConfig{Name: "mihomo", ConfigFile: f.cfgFile})
 	if err != nil {
-		t.Fatal(err)
+		return kernel.Endpoints{}, err
 	}
-	if string(got) != "proxies: [b]\n" {
-		t.Fatalf("profile file = %q, want the refreshed content", got)
-	}
-}
-
-func TestUpdateReappliesActiveProfile(t *testing.T) {
-	svc, k := newTestService(t)
-
-	src := filepath.Join(t.TempDir(), "sub.yaml")
-	writeFile(t, src, "proxies: [a]\n")
-	draft := &profile{Name: "p1", URL: "file://" + src}
-	if err := svc.Add(draft); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
-	k.restarts = 0 // Add auto-activates the first profile; start counting now
-
-	writeFile(t, src, "proxies: [fresh]\n")
-	if err := svc.Update("p1"); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if k.restarts == 0 {
-		t.Fatal("active profile updated without re-applying it to the kernel")
-	}
-	got, _ := os.ReadFile(k.cfgFile)
-	if string(got) != "proxies: [fresh]\n" {
-		t.Fatalf("kernel config = %q, want the refreshed content", got)
-	}
-}
-
-func TestUpdateInactiveProfileDoesNotRestartKernel(t *testing.T) {
-	svc, k := newTestService(t)
-
-	src := filepath.Join(t.TempDir(), "sub.yaml")
-	writeFile(t, src, "proxies: [a]\n")
-	first := &profile{Name: "p1", URL: "file://" + src}
-	if err := svc.Add(first); err != nil {
-		t.Fatalf("Add(first) error = %v", err)
-	}
-	secondSrc := filepath.Join(t.TempDir(), "sub2.yaml")
-	writeFile(t, secondSrc, "proxies: [x]\n")
-	second := &profile{Name: "p2", URL: "file://" + secondSrc}
-	if err := svc.Add(second); err != nil {
-		t.Fatalf("Add(second) error = %v", err)
-	}
-	k.restarts = 0
-
-	writeFile(t, secondSrc, "proxies: [y]\n")
-	if err := svc.Update("p2"); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if k.restarts != 0 {
-		t.Fatalf("kernel restarted %d times for an inactive profile", k.restarts)
-	}
-}
-
-func TestUpdateKeepsGoingWhenOneProfileFails(t *testing.T) {
-	svc, _ := newTestService(t)
-
-	goodSrc := filepath.Join(t.TempDir(), "good.yaml")
-	good := &profile{Name: "good", URL: "file://" + writeFile(t, goodSrc, "proxies: [a]\n")}
-	if err := svc.Add(good); err != nil {
-		t.Fatalf("Add(good) error = %v", err)
-	}
-	// A profile whose source has disappeared since it was added.
-	svc.subConfig.Profiles = append(svc.subConfig.Profiles, profile{
-		Name: "bad", URL: "file:///nonexistent/sub.yaml", File: filepath.Join(t.TempDir(), "bad.yaml"),
-	})
-
-	err := svc.Update()
-	if err == nil {
-		t.Fatal("Update() succeeded with a broken source; want joined error")
-	}
-	if !strings.Contains(err.Error(), "bad") {
-		t.Fatalf("error %v does not name the failing profile", err)
-	}
-
-	got, err := os.ReadFile(good.File)
-	if err != nil || string(got) != "proxies: [a]\n" {
-		t.Fatalf("good profile not updated: %q (%v)", got, err)
-	}
-}
-
-func TestUpdateSkipsIdenticalContent(t *testing.T) {
-	svc, k := newTestService(t)
-
-	src := filepath.Join(t.TempDir(), "sub.yaml")
-	writeFile(t, src, "proxies: [a]\n")
-	draft := &profile{Name: "p1", URL: "file://" + src}
-	if err := svc.Add(draft); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
-	k.restarts = 0 // Add auto-activates; start counting now
-
-	if err := svc.Update("p1"); err != nil {
-		t.Fatalf("Update() with unchanged source error = %v", err)
-	}
-	if k.restarts != 0 {
-		t.Fatalf("kernel restarted %d times although the content did not change", k.restarts)
-	}
-
-	writeFile(t, src, "proxies: [changed]\n")
-	if err := svc.Update("p1"); err != nil {
-		t.Fatalf("Update() with changed source error = %v", err)
-	}
-	if k.restarts == 0 {
-		t.Fatal("kernel not restarted after the active profile actually changed")
-	}
-}
-
-func TestUpdateRejectsUnknownName(t *testing.T) {
-	svc, _ := newTestService(t)
-	if err := svc.Update("nope"); err == nil {
-		t.Fatal("Update(unknown) succeeded; want error")
-	}
-}
-
-// TestUpdateAppliesActiveDespiteOtherFailure pins the anti-stranding fix:
-// when the active profile updated but another profile's source failed, the
-// kernel must still be switched — otherwise it stays on the old
-// subscription forever (the next update sees identical bytes).
-func TestUpdateAppliesActiveDespiteOtherFailure(t *testing.T) {
-	svc, k := newTestService(t)
-
-	src := filepath.Join(t.TempDir(), "sub.yaml")
-	writeFile(t, src, "proxies: [a]\n")
-	active := &profile{Name: "active", URL: "file://" + src}
-	if err := svc.Add(active); err != nil {
-		t.Fatalf("Add(active) error = %v", err)
-	}
-	k.restarts = 0 // Add auto-activates; start counting now
-	svc.subConfig.Profiles = append(svc.subConfig.Profiles, profile{
-		Name: "bad", URL: "file:///nonexistent/sub.yaml", File: filepath.Join(t.TempDir(), "bad.yaml"),
-	})
-
-	writeFile(t, src, "proxies: [fresh]\n")
-	err := svc.Update()
-	if err == nil || !strings.Contains(err.Error(), "bad") {
-		t.Fatalf("Update() error = %v; want a joined error naming the bad profile", err)
-	}
-	if k.restarts == 0 {
-		t.Fatal("active profile update was not applied although another profile failed")
-	}
-	got, _ := os.ReadFile(k.cfgFile)
-	if string(got) != "proxies: [fresh]\n" {
-		t.Fatalf("kernel config = %q; want the updated active profile", got)
-	}
-}
-
-// TestUpdateStagesConfigWhenKernelStopped pins that an update never
-// resurrects a kernel the user deliberately stopped: new bytes go to the
-// kernel config file, no restart.
-func TestUpdateStagesConfigWhenKernelStopped(t *testing.T) {
-	svc, k := newTestService(t)
-
-	src := filepath.Join(t.TempDir(), "sub.yaml")
-	writeFile(t, src, "proxies: [a]\n")
-	if err := svc.Add(&profile{Name: "p1", URL: "file://" + src}); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
-
-	k.stopped = true
-	k.restarts = 0
-	writeFile(t, src, "proxies: [staged]\n")
-
-	if err := svc.Update("p1"); err != nil {
-		t.Fatalf("Update() with a stopped kernel error = %v", err)
-	}
-	if k.restarts != 0 {
-		t.Fatalf("kernel restarted %d times although it was stopped", k.restarts)
-	}
-	got, err := os.ReadFile(k.cfgFile)
-	if err != nil || string(got) != "proxies: [staged]\n" {
-		t.Fatalf("kernel config = %q (%v); want the staged update", got, err)
-	}
+	return k.ProxyEndpoints()
 }

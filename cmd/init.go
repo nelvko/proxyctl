@@ -10,11 +10,12 @@ import (
 )
 
 // initCmd emits the shell integration: a proxyctl() wrapper so that
-// shellEval commands (on/off) apply to the current shell.
-var initCmd = &cobra.Command{
-	Use:   "init [shell]",
-	Short: "Print the shell integration script",
-	Long: `Print the shell integration script.
+// on/off commands (on/off) apply to the current shell.
+func newInitCmd() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "init [shell]",
+		Short: "Print the shell integration script",
+		Long: `Print the shell integration script.
 
 Add the integration to your shell:
 
@@ -23,34 +24,32 @@ Add the integration to your shell:
     proxyctl init fish | source      # fish, in config.fish
 
 Without an argument the shell is detected from the environment.`,
-	Args:      cobra.MaximumNArgs(1),
-	ValidArgs: []string{"bash", "zsh", "fish"},
-	GroupID:   ShellGroup.ID,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		shell := ""
-		if len(args) == 1 {
-			shell = args[0]
-		} else {
-			shell = defaultShell()
-		}
+		Args:      cobra.MaximumNArgs(1),
+		ValidArgs: []string{"bash", "zsh", "fish"},
+		GroupID:   "shell",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			shell := ""
+			if len(args) == 1 {
+				shell = args[0]
+			} else {
+				shell = defaultShell()
+			}
 
-		var script string
-		switch shell {
-		case "bash", "zsh":
-			script = posixScript(shell)
-		case "fish":
-			script = fishScript()
-		default:
-			return fmt.Errorf("unsupported shell %q, available: bash, zsh, fish", shell)
-		}
+			var script string
+			switch shell {
+			case "bash", "zsh":
+				script = posixScript(shell)
+			case "fish":
+				script = fishScript()
+			default:
+				return fmt.Errorf("unsupported shell %q, available: bash, zsh, fish", shell)
+			}
 
-		fmt.Print(script)
-		return nil
-	},
-}
-
-func init() {
-	RootCmd.AddCommand(initCmd)
+			cmd.Print(script)
+			return nil
+		},
+	}
+	return command
 }
 
 func defaultShell() string {
@@ -63,18 +62,6 @@ func defaultShell() string {
 	default:
 		return "bash"
 	}
-}
-
-// evalCommands collects the commands whose stdout must be eval'd, so new
-// shellEval commands join the wrapper without users reinstalling it.
-func evalCommands() []string {
-	var names []string
-	for _, c := range RootCmd.Commands() {
-		if c.Annotations["shellEval"] == "true" {
-			names = append(names, c.Name())
-		}
-	}
-	return names
 }
 
 func posixScript(shell string) string {
@@ -100,7 +87,7 @@ proxyctl() {
 			;;
 	esac
 }
-`, shell, shell, shell, strings.Join(evalCommands(), "|"))
+`, shell, shell, shell, "on|off")
 }
 
 func fishScript() string {
@@ -114,11 +101,15 @@ function proxyctl
 				command proxyctl $argv
 				return
 			end
-			command proxyctl $argv | source
-			return $pipestatus[1]
+			set -l __proxyctl_out (command proxyctl $argv)
+			set -l __proxyctl_status $status
+			if test $__proxyctl_status -ne 0
+				return $__proxyctl_status
+			end
+			printf '%%s\n' $__proxyctl_out | source
 		case '*'
 			command proxyctl $argv
 	end
 end
-`, strings.Join(evalCommands(), " "))
+`, "on off")
 }

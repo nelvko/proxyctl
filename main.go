@@ -10,13 +10,12 @@ import (
 
 	"charm.land/fang/v2"
 	"github.com/nelvko/proxyctl/cmd"
-	_ "github.com/nelvko/proxyctl/cmd/sub"
 )
 
 func main() {
 	if err := fang.Execute(
 		context.Background(),
-		cmd.RootCmd,
+		cmd.NewRootCmd(),
 		fang.WithNotifySignal(os.Interrupt, syscall.SIGTERM),
 	); err != nil {
 		os.Exit(1)

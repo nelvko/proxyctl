@@ -2,91 +2,51 @@ package cmd
 
 import (
 	"fmt"
-	"net"
-	"net/url"
-	"time"
 
 	"github.com/nelvko/proxyctl/internal/env"
-	"github.com/nelvko/proxyctl/internal/ui"
+	"github.com/nelvko/proxyctl/internal/redact"
 	"github.com/spf13/cobra"
 )
 
 // onCmd represents the on command
-var onCmd = &cobra.Command{
-	Use:   "on",
-	Short: "Enable the proxy environment in the current shell",
-	Long: `Enable the proxy environment in the current shell.
+func newOnCmd() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "on",
+		Short: "Enable the proxy environment in the current shell",
+		Long: `Enable the proxy environment in the current shell.
 
 Starts the kernel service if needed, then prints shell statements
 that apply the proxy environment to stdout. With the shell
 integration (eval "$(proxyctl init bash)"), they apply to the
 current shell; the kernel config decides the actual address.`,
-	Annotations: map[string]string{"shellEval": "true"},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := requireShellIntegration(cmd.Name()); err != nil {
-			return err
-		}
-		k, err := App().Kernel()
-		if err != nil {
-			return err
-		}
-
-		if running, err := k.IsActive(); err != nil {
-			return err
-		} else if !running {
-			if err := k.Start(); err != nil {
+		Args: cobra.NoArgs,
+		RunE: mutation(func(cmd *cobra.Command, args []string) error {
+			if err := requireShellIntegration(cmd.Name()); err != nil {
 				return err
 			}
-		}
-
-		e, err := env.Resolve(k.ConfigFile())
-		if err != nil {
-			return err
-		}
-		// The unit is Type=simple: systemd reports active as soon as the
-		// process is forked, so probe the actual endpoint instead.
-		if err := waitReachable(e); err != nil {
-			return err
-		}
-
-		printShell(e.Export(env.Shell()))
-		ui.Err(fmt.Sprintf("proxy on: %s", firstNonEmpty(e.HTTP, e.All)))
-		return nil
-	},
-}
-
-func init() {
-	RootCmd.AddCommand(onCmd)
-}
-
-// waitReachable retries until at least one resolved proxy endpoint accepts
-// TCP connections.
-func waitReachable(e env.ProxyEnv) error {
-	for _, addr := range []string{e.HTTP, e.All} {
-		if addr == "" {
-			continue
-		}
-		for range 10 {
-			u, err := url.Parse(addr)
+			a, err := loadApp(cmd)
 			if err != nil {
 				return err
 			}
-			conn, err := net.DialTimeout("tcp", u.Host, 500*time.Millisecond)
-			if err == nil {
-				conn.Close()
-				return nil
+			endpoints, err := a.StartProxy(cmd.Context())
+			if err != nil {
+				return err
 			}
-			time.Sleep(300 * time.Millisecond)
-		}
+			e := env.ForProxy(endpoints.HTTP, endpoints.SOCKS)
+
+			printShell(cmd, e.Export(env.Shell()))
+			cmd.PrintErrln(fmt.Sprintf("proxy on: %s", redact.URL(firstNonEmpty(e.HTTP, e.All))))
+			return nil
+		}),
 	}
-	return fmt.Errorf("proxy endpoint not reachable: %s", firstNonEmpty(e.HTTP, e.All))
+	return command
 }
 
 // printShell writes shell statements to stdout — the only thing allowed
-// there for shellEval commands.
-func printShell(lines []string) {
+// there for on/off commands.
+func printShell(cmd *cobra.Command, lines []string) {
 	for _, line := range lines {
-		fmt.Println(line)
+		cmd.Println(line)
 	}
 }
 

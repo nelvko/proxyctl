@@ -3,37 +3,56 @@ package sub
 import (
 	"errors"
 
-	"github.com/nelvko/proxyctl/internal/subscription"
+	"github.com/nelvko/proxyctl/internal/app"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-// updateCmd represents the update command
-var updateCmd = &cobra.Command{
-	Use:   "update [name...]",
-	Short: "Update subscription profiles",
-	Long: `Update subscription profiles.
-
-Every profile is re-fetched from its source URL (or only the named
-ones) and validated before its file is replaced. A profile whose
-content did not change is left untouched, so the kernel is restarted
-only when the active profile really changed. A failing profile does
-not stop the others.`,
-	Args: cobra.ArbitraryArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		profiles, err := profiles()
-		if err != nil {
+func newUpdateCmd() *cobra.Command {
+	var all, keepFailed bool
+	var download downloadFlags
+	cmd := &cobra.Command{
+		Use: "update [name...]", Short: "Refresh the selected or explicitly named subscription profiles",
+		Long: `Refresh named profiles, or the selected profile when no names are supplied.
+Use --all to update every profile. Names and --all are mutually exclusive.
+Validated downloads replace local edits. The selected profile is applied when
+necessary; running kernels restart and stopped kernels remain stopped.
+Download flags override saved settings for this invocation only, including --all.
+file:// sources are read again from the original file path.`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				return errors.New("--all cannot be combined with profile names")
+			}
+			return nil
+		},
+		RunE: mutation(func(cmd *cobra.Command, args []string) error {
+			options, err := download.options(cmd)
+			if err != nil {
+				return err
+			}
+			svc, err := app.LoadRuntimeProfiles(cmd.Context(), ui.Reporter(cmd.ErrOrStderr()))
+			if err != nil {
+				return err
+			}
+			svc.KeepFailed = keepFailed
+			if len(svc.List()) == 0 {
+				return errors.New("no profiles; run proxyctl sub add <url> first")
+			}
+			if len(args) == 0 && !all {
+				if svc.SelectedName() == "" {
+					return errors.New("no profile is selected; specify a name or use --all")
+				}
+				args = []string{svc.SelectedName()}
+			}
+			results, err := svc.Update(options, args...)
+			for _, result := range results {
+				cmd.Printf("profile %q: %s\n", result.Name, ui.ProfileUpdate(result))
+			}
 			return err
-		}
-		if interactive && len(args) == 0 {
-			return subscription.TUI(profiles)
-		}
-		if len(profiles.List()) == 0 {
-			return errors.New("no profiles, run `proxyctl sub add <url>` first")
-		}
-		return profiles.Update(args...)
-	},
-}
-
-func init() {
-	subCmd.AddCommand(updateCmd)
+		}),
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "Update every saved profile")
+	cmd.Flags().BoolVar(&keepFailed, "keep-failed", false, "Keep complete downloads that fail validation in diagnostics/; remove them manually after inspection")
+	download.bind(cmd, true)
+	return cmd
 }

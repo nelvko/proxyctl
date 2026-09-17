@@ -1,11 +1,13 @@
 package kernel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/download"
 	"github.com/nelvko/unisvc"
 )
 
@@ -13,6 +15,12 @@ import (
 // release; callers treat it as success — the download step is done, but
 // install still converges the service setup afterwards.
 var ErrUpToDate = errors.New("kernel is already the latest version")
+
+// ConfigValidationError means the kernel ran and rejected the candidate.
+// Execution failures and cancellation are returned separately.
+type ConfigValidationError struct{ Output string }
+
+func (e *ConfigValidationError) Error() string { return "test config: " + e.Output }
 
 // ConfigFormat is the subscription config format a kernel understands.
 type ConfigFormat string
@@ -47,15 +55,17 @@ type Artifact struct {
 }
 
 type Adapter interface {
+	ServiceSpec() *unisvc.Spec
+	ProxyEndpoints() (Endpoints, error)
 	// ConfigFile returns the kernel's active config file path.
 	ConfigFile() string
 	// ConfigFormat returns the subscription format the kernel understands.
 	ConfigFormat() ConfigFormat
-	TestConfig(configFile string) error
+	TestConfig(ctx context.Context, configFile string) error
 	// LatestArtifact describes the latest release's asset.
-	LatestArtifact() (*Artifact, error)
+	LatestArtifact(ctx context.Context, downloads *download.Downloader) (*Artifact, error)
 	// InstalledVersion returns the release version of the on-disk binary.
-	InstalledVersion() (string, error)
+	InstalledVersion(ctx context.Context) (string, error)
 }
 
 const (
@@ -116,19 +126,19 @@ type Entry struct {
 	Name        string
 	Format      ConfigFormat
 	Installed   bool
-	Active      bool
+	Selected    bool
 	Implemented bool
 }
 
 // List builds the kernel overview from cfg without touching the system.
-func List(cfg *config.AppConfig) []Entry {
+func List(cfg *config.Config) []Entry {
 	entries := make([]Entry, 0, len(names))
 	for _, name := range names {
 		desc := registry[name]
 		entry := Entry{Name: name, Format: desc.format, Implemented: desc.implemented}
 		if cfg.KernelByName(name) != nil {
 			entry.Installed = true
-			entry.Active = cfg.Use == name
+			entry.Selected = cfg.Use == name
 		}
 		entries = append(entries, entry)
 	}
@@ -136,6 +146,10 @@ func List(cfg *config.AppConfig) []Entry {
 }
 
 func New(kernelCfg *config.KernelConfig) (Kernel, error) {
+	return NewWithDownloads(kernelCfg, download.New(nil, nil, nil))
+}
+
+func NewWithDownloads(kernelCfg *config.KernelConfig, downloads *download.Downloader) (Kernel, error) {
 	switch kernelCfg.Name {
 	case "", mihomo:
 		// User scope: the kernel lives under $HOME, so installing and
@@ -143,6 +157,7 @@ func New(kernelCfg *config.KernelConfig) (Kernel, error) {
 		return &Mihomo{
 			unisvc.New(mihomo, unisvc.WithScope(unisvc.ScopeUser)),
 			*kernelCfg,
+			downloads,
 		}, nil
 	case clash, singbox:
 		return nil, fmt.Errorf("kernel %q is not supported yet", kernelCfg.Name)

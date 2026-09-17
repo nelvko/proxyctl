@@ -2,66 +2,80 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
-	"github.com/nelvko/proxyctl/internal/app"
-	"github.com/nelvko/proxyctl/internal/env"
-	pkernel "github.com/nelvko/proxyctl/internal/kernel"
+	"github.com/nelvko/proxyctl/internal/redact"
 	"github.com/spf13/cobra"
 )
 
-// statusCmd shows a cross-domain overview. It never prompts for a kernel
-// install: no kernel is a valid, displayable state.
-var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show proxy status",
-	Long: `Show the active kernel, service state, proxy endpoints
-and the current subscription.`,
-	Annotations: map[string]string{"skipRuntime": "true"},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.Load()
-		if err != nil {
-			return err
-		}
-
-		kcfg := a.Config.ActiveKernel()
-		if kcfg == nil {
-			fmt.Println("kernel:    none (run `proxyctl install`)")
-			return nil
-		}
-		fmt.Printf("kernel:    %s\n", kcfg.Name)
-
-		fmt.Print("service:   ")
-		if k, err := pkernel.New(kcfg); err != nil {
-			fmt.Printf("unknown (%v)\n", err)
-		} else if on, err := k.IsActive(); err == nil && on {
-			fmt.Println("running (user)")
-		} else {
-			fmt.Println("stopped")
-		}
-
-		fmt.Print("proxy:     ")
-		if e, err := env.Resolve(kcfg.ConfigFile); err == nil {
-			var endpoints []string
-			for _, v := range []string{e.HTTP, e.All} {
-				if v != "" {
-					endpoints = append(endpoints, v)
+func newStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show the selected kernel, shared service, subscription and shell state",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp(cmd)
+			if err != nil {
+				return err
+			}
+			if cfg := a.Config.SelectedKernel(); cfg == nil {
+				cmd.Println("kernel:    none (run `proxyctl install` or `proxyctl use <name>`)")
+				cmd.Println("service:   -")
+				cmd.Println("proxy:     -")
+			} else {
+				cmd.Printf("kernel:    %s\n", cfg.Name)
+				k, err := a.Kernel()
+				if err != nil {
+					cmd.Printf("service:   unknown (%v)\n", err)
+				} else {
+					running, err := k.IsActive()
+					switch {
+					case err != nil:
+						cmd.Printf("service:   unknown (%v)\n", err)
+					case running:
+						cmd.Println("service:   running (user)")
+					default:
+						cmd.Println("service:   stopped")
+					}
+				}
+				if k != nil {
+					if e, err := k.ProxyEndpoints(); err == nil {
+						var endpoints []string
+						for _, v := range []string{e.HTTP, e.SOCKS} {
+							if v != "" {
+								endpoints = append(endpoints, redact.URL(v))
+							}
+						}
+						cmd.Printf("proxy:     %s\n", strings.Join(endpoints, "  "))
+					} else {
+						cmd.Println("proxy:     -")
+					}
+				} else {
+					cmd.Println("proxy:     -")
 				}
 			}
-			fmt.Println(strings.Join(endpoints, "  "))
-		} else {
-			fmt.Println("-")
-		}
-
-		profile := "none"
-		if a.Subscriptions.Use != "" {
-			profile = fmt.Sprintf("%s (%d total)", a.Subscriptions.Use, len(a.Subscriptions.Profiles))
-		}
-		fmt.Printf("profile:   %s\n", profile)
-		return nil
-	},
-}
-
-func init() {
-	RootCmd.AddCommand(statusCmd)
+			var variables []string
+			for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"} {
+				if os.Getenv(key) != "" {
+					variables = append(variables, key)
+				}
+			}
+			if len(variables) == 0 {
+				cmd.Println("shell:     no proxy variables set")
+			} else {
+				cmd.Printf("shell:     %s set\n", strings.Join(variables, ", "))
+			}
+			if err := a.LoadSubscriptions(); err != nil {
+				cmd.Printf("profile:   unknown (%v)\n", err)
+				return nil
+			}
+			profile := "none"
+			if a.Subscriptions.Use != "" {
+				profile = fmt.Sprintf("%s (%d total)", a.Subscriptions.Use, len(a.Subscriptions.Profiles))
+			}
+			cmd.Printf("profile:   %s\n", profile)
+			return nil
+		},
+	}
 }

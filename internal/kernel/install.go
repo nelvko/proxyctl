@@ -12,44 +12,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"time"
 
-	"golang.org/x/term"
-
-	"github.com/nelvko/proxyctl/internal/config"
-	"github.com/nelvko/proxyctl/internal/httpx"
-	"github.com/nelvko/proxyctl/internal/ui"
+	"github.com/nelvko/proxyctl/internal/download"
 	"github.com/nelvko/unisvc"
 )
 
 // downloadTimeout bounds the whole fetch generously: the stall watchdog in
-// httpx.Download, not wall-clock time, is what catches dead connections.
+// download.Downloader.Fetch, not wall-clock time, detects stalled transfers.
 const downloadTimeout = 30 * time.Minute
-
-// DefaultConfig returns the default on-disk layout for a kernel:
-// binary under ~/.local/share/proxyctl/kernels/<name>/,
-// config under $(os.UserConfigDir)/proxyctl/<name>/ — the same root as
-// proxyctl's own config, so there is exactly one config root per platform.
-func DefaultConfig(name string) config.KernelConfig {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	bin := filepath.Join(home, ".local", "share", config.AppName, "kernels", name, name)
-
-	cfgDir, err := os.UserConfigDir()
-	if err != nil {
-		cfgDir = filepath.Join(home, ".config")
-	}
-	kcfgDir := filepath.Join(cfgDir, config.AppName, name)
-	return config.KernelConfig{
-		Name:       name,
-		Bin:        bin,
-		ConfigDir:  kcfgDir,
-		ConfigFile: filepath.Join(kcfgDir, "config.yaml"),
-	}
-}
 
 // Download fetches the latest kernel release and extracts the binary to bin,
 // replacing it atomically. Sources are tried mirror-first and each one must
@@ -57,16 +28,15 @@ func DefaultConfig(name string) config.KernelConfig {
 // bytes, never identity. When the managed kernel is running, downloads ride
 // its own inbound. It returns ErrUpToDate — without downloading — when the
 // installed binary already is the latest release.
-func Download(ctx context.Context, k Kernel, bin string) error {
+func Download(ctx context.Context, k Kernel, bin string, downloads *download.Downloader) error {
 	if runtime.GOOS == "windows" {
 		// The asset is a .zip this path cannot extract and the service layer
 		// is systemd-only; fail before the multi-MB fetch.
 		return errors.New("windows is not supported yet (zip extraction and service management are missing)")
 	}
-	useLocalKernelIfRunning(k)
 
-	statusf("resolving latest release…")
-	art, err := k.LatestArtifact()
+	downloads.Message(false, "resolving latest release…")
+	art, err := k.LatestArtifact(ctx, downloads)
 	if err != nil {
 		return err
 	}
@@ -74,16 +44,16 @@ func Download(ctx context.Context, k Kernel, bin string) error {
 	// cannot verify (the version.txt fallback is the only legitimate
 	// digest-less path, and it is TLS-anchored direct github.com anyway).
 	if art.FromAPI && art.SHA256 == "" {
-		if len(httpx.Mirrors()) > 0 {
+		if len(downloads.Mirrors()) > 0 {
 			return fmt.Errorf("release %s carries no digest; refusing mirror downloads that cannot be verified (set PROXYCTL_NO_VERIFY=1 to override)", art.Version)
 		}
-		fmt.Fprintf(os.Stderr, "proxyctl: release %s carries no digest; continuing with TLS-only verification\n", art.Version)
+		downloads.Message(true, "proxyctl: release %s carries no digest; continuing with TLS-only verification\n", art.Version)
 	}
 	// Skip the multi-MB fetch when the binary on disk already is the latest.
-	if cur, err := k.InstalledVersion(); err == nil && cur == art.Version {
+	if cur, err := k.InstalledVersion(ctx); err == nil && cur == art.Version {
 		return ErrUpToDate
 	}
-	sources, err := httpx.MirrorCandidates(art.URL)
+	sources, err := downloads.MirrorCandidates(art.URL)
 	if err != nil {
 		return err
 	}
@@ -109,11 +79,11 @@ func Download(ctx context.Context, k Kernel, bin string) error {
 
 	var errs []error
 	for _, src := range sources {
-		if err := fetchArtifact(ctx, src, art, f); err != nil {
+		if err := fetchArtifact(ctx, src, art, f, downloads); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if err := httpx.Ungzip(f, bin); err != nil {
+		if err := ungzip(f, bin); err != nil {
 			return fmt.Errorf("extract kernel: %w", err)
 		}
 		return os.Chmod(bin, 0o755)
@@ -127,39 +97,21 @@ func Download(ctx context.Context, k Kernel, bin string) error {
 	return err
 }
 
-// useLocalKernelIfRunning routes downloads through the running kernel's own
-// inbound — a fresh SSH session or cron has no proxy env even though the
-// kernel it manages is up. Kernels exposing no inbound, a stopped kernel or
-// an explicit shell proxy leave the transport untouched.
-func useLocalKernelIfRunning(k Kernel) {
-	inbound, ok := k.(interface{ InboundAddr() string })
-	if !ok {
-		return
-	}
-	on, err := k.IsActive()
-	if err != nil || !on {
-		return
-	}
-	httpx.UseLocalKernel(inbound.InboundAddr())
-}
-
 // fetchArtifact downloads src into f and, when the artifact carries a
 // digest, verifies the bytes before they are trusted.
-func fetchArtifact(ctx context.Context, src string, art *Artifact, f *os.File) error {
+func fetchArtifact(ctx context.Context, src string, art *Artifact, f *os.File, downloads *download.Downloader) error {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 	if err := f.Truncate(0); err != nil {
 		return err
 	}
-	statusf("downloading %s", src)
+	downloads.Message(false, "downloading %s", src)
 
 	w := &resettableWriter{f: f, h: sha256.New()}
-	progress := progressPrinter()
-	n, err := httpx.Download(ctx, src, w, progress)
-	if progress != nil {
-		fmt.Fprintln(os.Stderr)
-	}
+	progress := downloads.Progress()
+	n, err := downloads.Fetch(ctx, src, w, progress, download.RequestOptions{})
+
 	if err != nil {
 		return err
 	}
@@ -197,44 +149,6 @@ func (w *resettableWriter) Reset() error {
 		return err
 	}
 	return w.f.Truncate(0)
-}
-
-// quietDownloads silences download progress/status lines when set — the
-// subscription TUI runs its own spinner and a stderr progress line would
-// corrupt its full-screen rendering.
-var quietDownloads atomic.Bool
-
-// SetQuietDownloads toggles download progress/status output.
-func SetQuietDownloads(q bool) { quietDownloads.Store(q) }
-
-// statusf prints a download status line unless quiet.
-func statusf(format string, a ...any) {
-	if quietDownloads.Load() {
-		return
-	}
-	ui.Err(fmt.Sprintf(format, a...))
-}
-
-// progressPrinter returns an httpx progress callback that rewrites a single
-// stderr line, throttled to displayed-value changes; nil when quiet or when
-// stderr is not a terminal, keeping pipes and captured output clean.
-func progressPrinter() func(total, n int64) {
-	if quietDownloads.Load() || !term.IsTerminal(int(os.Stderr.Fd())) {
-		return nil
-	}
-	const mib = 1 << 20
-	last := int64(-1)
-	return func(total, n int64) {
-		if n*10/mib == last {
-			return
-		}
-		last = n * 10 / mib
-		if total > 0 {
-			fmt.Fprintf(os.Stderr, "\r%.1f / %.1f MiB", float64(n)/mib, float64(total)/mib)
-		} else {
-			fmt.Fprintf(os.Stderr, "\r%.1f MiB", float64(n)/mib)
-		}
-	}
 }
 
 // InstallService installs the service, replacing a previously installed
