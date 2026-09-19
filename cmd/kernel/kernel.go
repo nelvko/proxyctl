@@ -6,7 +6,12 @@ import (
 
 // NewCommands builds top-level operations on proxyctl's default object.
 func NewCommands() []*cobra.Command {
-	commands := []*cobra.Command{newInstallCmd(), newUninstallCmd(), newUpgradeCmd(), newListCmd(), newUseCmd()}
+	commands := []*cobra.Command{
+		newInstallCmd(),
+		newUninstallCmd(),
+		newUpgradeCmd(),
+		newListCmd(),
+		newUseCmd()}
 	for _, cmd := range commands {
 		cmd.GroupID = "kernel"
 		switch cmd.Name() {

@@ -2,10 +2,7 @@ package kernel
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 
-	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -37,29 +34,15 @@ Shell environment variables are unchanged.`,
 			if len(args) > 0 {
 				name = args[0]
 			} else {
-				options := make([]huh.Option[string], 0, len(a.Config.Kernels))
-				for _, k := range a.Config.Kernels {
-					label := k.Name
-					if k.Name == a.Config.Use {
-						label += " (selected)"
-					}
-					options = append(options, huh.NewOption(label, k.Name))
-				}
-				name = a.Config.Use
-				if err := huh.NewForm(huh.NewGroup(huh.NewSelect[string]().Title("Select an installed kernel").Options(options...).Value(&name))).Run(); err != nil {
-					if errors.Is(err, huh.ErrUserAborted) {
+				options, initial := installedOptions(a.Config.Kernels, a.Config.Use)
+				name = initial
+				if name, err = pickKernel("Select an installed kernel", options); err != nil {
+					if cancelled(err) {
 						cmd.PrintErrln("cancelled")
 						return nil
 					}
 					return err
 				}
-			}
-			if a.Config.KernelByName(name) == nil {
-				names := make([]string, 0, len(a.Config.Kernels))
-				for _, k := range a.Config.Kernels {
-					names = append(names, k.Name)
-				}
-				return fmt.Errorf("kernel %q is not installed; installed kernels: %s", name, strings.Join(names, ", "))
 			}
 			if err := a.UseKernel(cmd.Context(), name); err != nil {
 				return err

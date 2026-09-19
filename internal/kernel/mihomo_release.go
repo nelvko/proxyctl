@@ -3,10 +3,8 @@ package kernel
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -50,59 +48,24 @@ func (m Mihomo) LatestArtifact(ctx context.Context, downloads *download.Download
 }
 
 // latestArtifactFromAPI resolves version, asset URL, digest and size in one
-// request. It is fetched directly (HTTP(S)_PROXY env still applies, so
-// `proxyctl on` routes it through the local kernel): ghproxy-style mirrors
-// only front github.com paths, and the API is the trust anchor for the
-// digest — a mirror must supply bytes, never identity.
+// request through the shared GitHub release helper.
 func latestArtifactFromAPI(ctx context.Context, downloads *download.Downloader) (*Artifact, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mihomoReleasesAPI, nil)
+	release, err := fetchGithubRelease(ctx, mihomoReleasesAPI, downloads)
 	if err != nil {
-		return nil, fmt.Errorf("fetch release metadata: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := downloads.Client().Do(req)
+	name := mihomoBaseName() + "-" + release.Tag + archiveSuffix()
+	asset, err := release.Asset(name)
 	if err != nil {
-		return nil, fmt.Errorf("fetch release metadata: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusForbidden {
-			return nil, fmt.Errorf("fetch release metadata: %s (rate-limited?)", resp.Status)
-		}
-		return nil, fmt.Errorf("fetch release metadata: %s", resp.Status)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-			Size               int64  `json:"size"`
-			Digest             string `json:"digest"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("decode release metadata: %w", err)
-	}
-
-	name := mihomoBaseName() + "-" + release.TagName + archiveSuffix()
-	for _, a := range release.Assets {
-		if a.Name != name {
-			continue
-		}
-		return &Artifact{
-			URL:     a.BrowserDownloadURL,
-			Version: release.TagName,
-			SHA256:  strings.TrimPrefix(a.Digest, "sha256:"),
-			Size:    a.Size,
-			FromAPI: true,
-		}, nil
-	}
-	return nil, fmt.Errorf("release %s has no %q asset", release.TagName, name)
+	return &Artifact{
+		URL:     asset.URL,
+		Version: release.Tag,
+		SHA256:  asset.SHA256,
+		Size:    asset.Size,
+		FromAPI: true,
+	}, nil
 }
 
 // artifactFromVersionTXT builds the artifact from version.txt (mirror

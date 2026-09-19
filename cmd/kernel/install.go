@@ -1,11 +1,9 @@
 package kernel
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
-	"charm.land/huh/v2"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/spf13/cobra"
 )
@@ -41,9 +39,9 @@ the GitHub API.`,
 			if len(args) == 1 {
 				name = args[0]
 			} else {
-				name, err = pickKernel("Select a kernel to install")
+				name, err = pickKernel("Select a kernel to install", installableOptions())
 				if err != nil {
-					if errors.Is(err, huh.ErrUserAborted) {
+					if cancelled(err) {
 						cmd.PrintErrln("cancelled")
 						return nil
 					}

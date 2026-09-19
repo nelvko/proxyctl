@@ -2,24 +2,22 @@ package kernel
 
 import (
 	"errors"
-	"fmt"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
+	"github.com/nelvko/proxyctl/internal/config"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 )
 
-func pickKernel(title string) (string, error) {
+// pickKernel prompts for one kernel from options built by the caller — install
+// offers the installable kernels, use the installed ones. Callers report a
+// cancelled pick with cancelled(err).
+func pickKernel(title string, options []huh.Option[string]) (string, error) {
 	if !isInteractive() {
-		return "", fmt.Errorf("no terminal available, run `proxyctl install <name>` instead")
+		return "", errors.New("no terminal available; pass the kernel name as an argument instead")
 	}
-	implemented := pkernel.ImplementedNames()
-	if len(implemented) == 0 {
-		return "", errors.New("no installable kernel")
-	}
-	options := make([]huh.Option[string], 0, len(implemented))
-	for _, name := range implemented {
-		options = append(options, huh.NewOption(string(pkernel.FormatOf(name))+" config · "+name, name))
+	if len(options) == 0 {
+		return "", errors.New("no kernel to choose from")
 	}
 
 	var name string
@@ -42,4 +40,31 @@ func pickKernel(title string) (string, error) {
 		return "", err
 	}
 	return name, nil
+}
+
+// cancelled reports whether the caller aborted an interactive prompt.
+func cancelled(err error) bool { return errors.Is(err, huh.ErrUserAborted) }
+
+// installableOptions lists the kernels install can provide.
+func installableOptions() []huh.Option[string] {
+	implemented := pkernel.ImplementedNames()
+	options := make([]huh.Option[string], 0, len(implemented))
+	for _, name := range implemented {
+		options = append(options, huh.NewOption(string(pkernel.FormatOf(name))+" config · "+name, name))
+	}
+	return options
+}
+
+// installedOptions lists the installed kernels, marking the selected one and
+// returning it as the pre-selected value so enter keeps the current choice.
+func installedOptions(kernels []config.KernelConfig, selected string) ([]huh.Option[string], string) {
+	options := make([]huh.Option[string], 0, len(kernels))
+	for _, k := range kernels {
+		label := k.Name
+		if k.Name == selected {
+			label += " (selected)"
+		}
+		options = append(options, huh.NewOption(label, k.Name))
+	}
+	return options, selected
 }

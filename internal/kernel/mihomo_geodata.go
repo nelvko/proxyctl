@@ -5,12 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/nelvko/proxyctl/internal/download"
@@ -90,49 +87,18 @@ func (m Mihomo) ensureGeodata(ctx context.Context, configFile string) {
 	}
 }
 
-// geodataReleaseMetadata resolves digests and sizes for all three geodata
-// assets in one API call; nil when the API is unreachable (callers degrade).
+// geodataReleaseMetadata resolves digests and sizes for the geodata assets
+// in one API call; nil when the API is unreachable (callers degrade).
 func geodataReleaseMetadata(ctx context.Context, downloads *download.Downloader) map[string]geodataMeta {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, geodataReleasesAPI, nil)
+	release, err := fetchGithubRelease(ctx, geodataReleasesAPI, downloads)
 	if err != nil {
 		return nil
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := downloads.Client().Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return nil
-	}
-	defer resp.Body.Close()
-
-	var release struct {
-		Assets []struct {
-			Name   string `json:"name"`
-			Size   int64  `json:"size"`
-			Digest string `json:"digest"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil
-	}
-
-	// Map API asset names ("geosite.dat") to our on-disk keys.
-	byAsset := make(map[string]string, len(geodataFiles))
-	for disk, u := range geodataFiles {
-		byAsset[filepath.Base(u)] = disk
-	}
 	metas := make(map[string]geodataMeta, len(geodataFiles))
-	for _, a := range release.Assets {
-		if disk, ok := byAsset[a.Name]; ok {
-			metas[disk] = geodataMeta{
-				sha256: strings.TrimPrefix(a.Digest, "sha256:"),
-				size:   a.Size,
-			}
+	for disk, u := range geodataFiles {
+		// Map API asset names ("geosite.dat") to our on-disk keys.
+		if asset := release.AssetByBase(u); asset != nil {
+			metas[disk] = geodataMeta{sha256: asset.SHA256, size: asset.Size}
 		}
 	}
 	return metas

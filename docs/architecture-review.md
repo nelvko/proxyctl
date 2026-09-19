@@ -89,7 +89,7 @@
 - subscription/service.go 保留服务定义、查询及能力检查；增删、应用、编辑、更新、存储分别归 add.go、remove.go、apply.go、edit.go、update.go、storage.go；元数据变更和名称校验归 metadata.go。
 - kernel/mihomo.go 保留适配器及校验；GeoData、发布资产与版本、配置端点解析分别归 mihomo_geodata.go、mihomo_release.go、mihomo_config.go；endpoints.go 仅保存通用端点类型。
 - download/runtime.go 拆为 downloader.go、client.go、mirror.go，传输逻辑继续留在 download.go。
-- cmd/kernel/kernel.go 仅注册命令，服务控制和安装交互选择分别归 service.go、select.go。
+- cmd/kernel/kernel.go 仅注册命令，服务控制归 service.go，两个内核选择器共用 picker.go。
 - ui 的订阅模型、视图、异步操作统一命名为 subscription_model.go、subscription_view.go、subscription_operations.go。
 - 原 optimize_test.go、semantics_test.go 按订阅功能归入测试文件，cmd 的订阅集成测试归 sub_test.go。
 
