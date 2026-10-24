@@ -19,8 +19,8 @@ func NewRootCmd() *cobra.Command {
 		Short: "Manage proxy kernels, subscriptions and the current shell",
 		Long: `Manage proxy kernels as user services, refresh subscription profiles,
 and enable the proxy in individual shells. Service operations affect all
-shells. The on command also starts the service when needed; off only clears
-the calling shell's proxy environment.`,
+shells. The on command also starts the service when needed; off clears the
+calling shell's proxy environment and can also stop the service with --stop.`,
 		Example: `  proxyctl install mihomo
   proxyctl sub add <url> --name work --use
   eval "$(proxyctl init zsh)"

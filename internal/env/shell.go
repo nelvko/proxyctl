@@ -64,6 +64,10 @@ func (e ProxyEnv) Unset(shell string) []string {
 		}
 		lines = append(lines, fmt.Sprintf("unset %s", key), fmt.Sprintf("unset %s", lower(key)))
 	}
+	if shell == "fish" {
+		// Erasing an absent variable returns nonzero in fish; cleanup is idempotent.
+		lines = append(lines, "true")
+	}
 	return lines
 }
 

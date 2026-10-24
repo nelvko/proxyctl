@@ -46,8 +46,18 @@ For fish, add `proxyctl init fish | source` to `config.fish`.
 
 `on` starts the selected kernel when needed, waits for its proxy endpoint,
 and enables the proxy in the current shell. `off` only clears that shell's
-proxy variables. To stop the shared service for all shells, use `proxyctl stop`.
-Other shells retain their environment variables until they run `proxyctl off`.
+proxy variables. Use `proxyctl off --stop` to clear the current shell and stop
+the selected shared service, or `proxyctl stop` to stop it without clearing the
+shell. Other shells retain their environment variables until they run
+`proxyctl off`.
+
+`off --stop` still clears the current shell when stopping fails, and returns
+a nonzero status for the failure. An already stopped service or no selected
+kernel needs no stop operation. Plain `off` and `off --stop=false` work even
+when saved configuration is broken.
+
+After updating proxyctl, reload `proxyctl init` in existing shells to enable
+the new flag in the shell wrapper (`eval "$(proxyctl init zsh)"` for zsh).
 
 ## Commands
 
@@ -66,7 +76,7 @@ verbs. Subscriptions have their own `sub` namespace.
 | `restart` | Restart the selected shared service, starting it if stopped. |
 | `status` | Show the selected kernel, shared service, proxy endpoints, shell variables and subscription. |
 | `on` | Enable the current shell's proxy variables, starting the service if needed. |
-| `off` | Clear the current shell's proxy variables; the service keeps running. |
+| `off [--stop]` | Clear the current shell's proxy variables. With `--stop`, also stop the selected shared kernel service. |
 | `env [--unset]` | Print shell statements without starting or stopping a service. `--unset` works without a kernel or valid configuration. |
 | `init [shell]` | Print integration code for bash, zsh or fish. Does not edit shell configuration files. |
 

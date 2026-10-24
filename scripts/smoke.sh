@@ -11,5 +11,6 @@ mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 "$bin" list >/dev/null
 "$bin" sub list >/dev/null
 "$bin" status >/dev/null
+"$bin" off --stop >/dev/null
 "$bin" env --unset >/dev/null
 printf '%s\n' 'CLI smoke passed (isolated state)'
