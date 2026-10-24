@@ -29,9 +29,15 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
+/.idea/
 # .vscode/
+
+# macOS metadata
+.DS_Store
 
 # Local build outputs
 /dist/
 /proxyctl
+
+# Locally downloaded proxy kernel
+/ninja
