@@ -5,6 +5,11 @@ settings in individual shells. Service management currently requires Linux
 with systemd. Mihomo and sing-box have built-in installation presets; other
 executables can be installed from local files.
 
+Run `proxyctl install` without a name to choose a built-in kernel. The picker
+shows configuration formats, installation status and the selected kernel.
+Press Enter to install, or q, Esc or Ctrl+C to cancel. To install a local
+executable, provide a name and `--bin`, with `--type` for a compatible fork.
+
 ## Quick start
 
 ```sh
@@ -51,7 +56,7 @@ verbs. Subscriptions have their own `sub` namespace.
 
 | Command | Behavior |
 | --- | --- |
-| `install [name]` | Download and install Mihomo or sing-box, or install a local executable with `--bin`. With no name, choose a built-in preset interactively. The first installed kernel is selected. |
+| `install [name]` | Download and install Mihomo or sing-box, or install a local executable with `--bin`. With no name, choose a built-in kernel with format and installation status shown. The first installed kernel is selected. |
 | `uninstall <name>` | Stop and remove the kernel's service, binary, managed config directory and registration. |
 | `upgrade [name]` | Download the latest built-in release or recopy the saved local file. Restart a running service. |
 | `list` | List known kernels, installation status and the selected kernel. |

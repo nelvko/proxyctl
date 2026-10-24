@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"github.com/nelvko/proxyctl/internal/config"
 )
 
 func TestLocalKernelConfig(t *testing.T) {
@@ -44,6 +48,18 @@ func TestLocalKernelConfig(t *testing.T) {
 	} {
 		if _, err := localKernelConfig(test.name, test.path, test.kind); err == nil {
 			t.Fatalf("accepted invalid installation settings: %+v", test)
+		}
+	}
+}
+
+func TestInstallSelectionCancellation(t *testing.T) {
+	for _, code := range []rune{'q', tea.KeyEscape} {
+		var name string
+		form := newInstallForm(&config.Config{}, &name)
+		form.Init()
+		form.Update(tea.KeyPressMsg{Code: code})
+		if form.State != huh.StateAborted {
+			t.Fatalf("key %q did not cancel the selection", code)
 		}
 	}
 }

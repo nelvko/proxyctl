@@ -6,12 +6,10 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/internal/config"
-	pkernel "github.com/nelvko/proxyctl/internal/kernel"
 )
 
-// pickKernel prompts for one kernel from options built by the caller — install
-// offers the installable kernels, use the installed ones. Callers report a
-// cancelled pick with cancelled(err).
+// pickKernel prompts for an installed kernel. Callers report a cancelled pick
+// with cancelled(err).
 func pickKernel(title string, options []huh.Option[string]) (string, error) {
 	if !isInteractive() {
 		return "", errors.New("no terminal available; pass the kernel name as an argument instead")
@@ -44,16 +42,6 @@ func pickKernel(title string, options []huh.Option[string]) (string, error) {
 
 // cancelled reports whether the caller aborted an interactive prompt.
 func cancelled(err error) bool { return errors.Is(err, huh.ErrUserAborted) }
-
-// installableOptions lists the kernels install can provide.
-func installableOptions() []huh.Option[string] {
-	implemented := pkernel.ImplementedNames()
-	options := make([]huh.Option[string], 0, len(implemented))
-	for _, name := range implemented {
-		options = append(options, huh.NewOption(string(pkernel.FormatOf(name))+" config · "+name, name))
-	}
-	return options
-}
 
 // installedOptions lists the installed kernels, marking the selected one and
 // returning it as the pre-selected value so enter keeps the current choice.

@@ -16,9 +16,10 @@ func newInstallCmd() *cobra.Command {
 		Use: "install [name]", Short: "Install a kernel binary and user service",
 		Long: `Install Mihomo or sing-box from their latest release, or copy a local binary with --bin.
 
-Run without a name to choose a built-in kernel interactively. For a local
-binary, provide a name and --bin. --type reuses Mihomo or sing-box configuration
-behavior when the binary is compatible.
+Run without a name to select a built-in kernel, showing its configuration
+format and installation status. For a local binary, provide a name and --bin.
+--type reuses Mihomo or sing-box configuration behavior when the local binary
+is compatible.
 
 The local executable must already be extracted and is copied into proxyctl's
 managed directory.`,
@@ -47,7 +48,7 @@ managed directory.`,
 				return err
 			}
 			if len(args) == 0 {
-				name, err = pickKernel("Select a kernel to install", installableOptions())
+				name, err = promptInstall(cmd.Context(), a.Config)
 				if err != nil {
 					if cancelled(err) {
 						cmd.PrintErrln("cancelled")
