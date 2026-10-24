@@ -74,7 +74,7 @@ verbs. Subscriptions have their own `sub` namespace.
 | `start` | Start the selected shared kernel service without changing shell variables. |
 | `stop` | Stop the selected shared service without changing shell variables. |
 | `restart` | Restart the selected shared service, starting it if stopped. |
-| `status` | Show the selected kernel, shared service, proxy endpoints, shell variables and subscription. |
+| `status [--json]` | Show the selected kernel, shared service, proxy endpoints, shell variables and subscription. Use `--json` for structured output. |
 | `on` | Enable the current shell's proxy variables, starting the service if needed. |
 | `off [--stop]` | Clear the current shell's proxy variables. With `--stop`, also stop the selected shared kernel service. |
 | `env [--unset]` | Print shell statements without starting or stopping a service. `--unset` works without a kernel or valid configuration. |
@@ -83,6 +83,19 @@ verbs. Subscriptions have their own `sub` namespace.
 Selecting a kernel or subscription does not modify any shell's environment.
 If a switch changes the proxy address or port, run `proxyctl on` again in the
 shells that use it.
+
+`status --json` emits one JSON object with `kernel`, `service`, `proxy`,
+`shell` and `profile` sections. Service states distinguish `running`, `stopped`,
+`unknown` (query failure) and `unavailable` (no selected kernel). Local query
+failures have a redacted `error` field; unknown profile totals are `null`.
+If the main configuration cannot be loaded, the command exits nonzero without
+writing a JSON object. Default text output is unchanged.
+
+Proxy endpoints are read from saved configuration without testing connectivity;
+`proxy.state = "available"` means an endpoint is configured. Endpoints hide
+credentials, and `shell.proxy_variables` contains only nonempty variable names,
+including the upper/lowercase HTTP, HTTPS, ALL and NO_PROXY names. No variable
+values or subscription source URLs are included.
 
 ## Subscriptions
 
