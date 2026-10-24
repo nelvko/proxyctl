@@ -65,6 +65,7 @@ func latestArtifactFromAPI(ctx context.Context, downloads *download.Downloader) 
 		SHA256:  asset.SHA256,
 		Size:    asset.Size,
 		FromAPI: true,
+		Archive: "gz",
 	}, nil
 }
 
@@ -78,6 +79,7 @@ func artifactFromVersionTXT(ctx context.Context, downloads *download.Downloader)
 	return &Artifact{
 		URL:     mihomoDownloadBaseURL + mihomoBaseName() + "-" + version + archiveSuffix(),
 		Version: version,
+		Archive: "gz",
 	}, nil
 }
 

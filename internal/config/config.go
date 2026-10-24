@@ -35,9 +35,11 @@ type Config struct {
 // KernelConfig is one installed kernel's on-disk entry.
 type KernelConfig struct {
 	Name       string `mapstructure:"name"`
+	Type       string `mapstructure:"type"`
 	Bin        string `mapstructure:"bin"`
 	ConfigDir  string `mapstructure:"configdir"`
 	ConfigFile string `mapstructure:"configfile"`
+	Source     string `mapstructure:"source"`
 }
 
 // SelectedKernel returns the config of the selected kernel, or nil.

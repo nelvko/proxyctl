@@ -94,5 +94,9 @@ func DefaultKernelConfig(name string) (KernelConfig, error) {
 		return KernelConfig{}, err
 	}
 	cfgDir := filepath.Join(root, name)
-	return KernelConfig{Name: name, Bin: filepath.Join(data, "kernels", name, name), ConfigDir: cfgDir, ConfigFile: filepath.Join(cfgDir, "config.yaml")}, nil
+	file := "config.yaml"
+	if name == "sing-box" {
+		file = "config.json"
+	}
+	return KernelConfig{Name: name, Bin: filepath.Join(data, "kernels", name, name), ConfigDir: cfgDir, ConfigFile: filepath.Join(cfgDir, file)}, nil
 }

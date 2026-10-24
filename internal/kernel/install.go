@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nelvko/proxyctl/internal/download"
+	"github.com/nelvko/proxyctl/internal/redact"
 	"github.com/nelvko/unisvc"
 )
 
@@ -22,17 +23,12 @@ import (
 // download.Downloader.Fetch, not wall-clock time, detects stalled transfers.
 const downloadTimeout = 30 * time.Minute
 
-// Download fetches the latest kernel release and extracts the binary to bin,
-// replacing it atomically. Sources are tried mirror-first and each one must
-// reproduce the artifact's digest when it is known — a mirror supplies
-// bytes, never identity. When the managed kernel is running, downloads ride
-// its own inbound. It returns ErrUpToDate — without downloading — when the
-// installed binary already is the latest release.
+// Download fetches a built-in kernel release and extracts its binary to bin,
+// replacing it atomically. Mirrors must reproduce the release digest when
+// one is available. It returns ErrUpToDate for an installed latest release.
 func Download(ctx context.Context, k Kernel, bin string, downloads *download.Downloader) error {
 	if runtime.GOOS == "windows" {
-		// The asset is a .zip this path cannot extract and the service layer
-		// is systemd-only; fail before the multi-MB fetch.
-		return errors.New("windows is not supported yet (zip extraction and service management are missing)")
+		return errors.New("windows service management is not supported yet")
 	}
 
 	downloads.Message(false, "resolving latest release…")
@@ -44,18 +40,23 @@ func Download(ctx context.Context, k Kernel, bin string, downloads *download.Dow
 	// cannot verify (the version.txt fallback is the only legitimate
 	// digest-less path, and it is TLS-anchored direct github.com anyway).
 	if art.FromAPI && art.SHA256 == "" {
-		if len(downloads.Mirrors()) > 0 {
+		if len(downloads.Mirrors()) > 0 && os.Getenv("PROXYCTL_NO_VERIFY") == "" {
 			return fmt.Errorf("release %s carries no digest; refusing mirror downloads that cannot be verified (set PROXYCTL_NO_VERIFY=1 to override)", art.Version)
 		}
 		downloads.Message(true, "proxyctl: release %s carries no digest; continuing with TLS-only verification\n", art.Version)
 	}
-	// Skip the multi-MB fetch when the binary on disk already is the latest.
 	if cur, err := k.InstalledVersion(ctx); err == nil && cur == art.Version {
 		return ErrUpToDate
 	}
 	sources, err := downloads.MirrorCandidates(art.URL)
 	if err != nil {
 		return err
+	}
+	if art.SHA256 == "" && os.Getenv("PROXYCTL_NO_VERIFY") == "" && len(downloads.Mirrors()) > 0 {
+		// The version.txt fallback has no digest, so mirror bytes cannot
+		// be checked against the release. Use the direct source only.
+		sources = []string{art.URL}
+		downloads.Message(true, "proxyctl: skipping mirrors for unverified release\n")
 	}
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		return err
@@ -83,12 +84,19 @@ func Download(ctx context.Context, k Kernel, bin string, downloads *download.Dow
 			errs = append(errs, err)
 			continue
 		}
-		if err := ungzip(f, bin); err != nil {
+		if err := extractExtraFiles(f, bin, art); err != nil {
+			return fmt.Errorf("extract kernel companions: %w", err)
+		}
+		if err := extractArtifact(f, bin, art); err != nil {
 			return fmt.Errorf("extract kernel: %w", err)
 		}
 		return os.Chmod(bin, 0o755)
 	}
-	err = fmt.Errorf("download failed, tried %s: %w", strings.Join(sources, " "), errors.Join(errs...))
+	display := make([]string, len(sources))
+	for i, src := range sources {
+		display[i] = redact.URL(src)
+	}
+	err = fmt.Errorf("download failed, tried %s: %w", strings.Join(display, " "), errors.Join(errs...))
 	if len(sources) == 1 {
 		// Direct github.com alone was tried and failed — the standard remedy
 		// on a blocked route is a mirror.
@@ -106,7 +114,7 @@ func fetchArtifact(ctx context.Context, src string, art *Artifact, f *os.File, d
 	if err := f.Truncate(0); err != nil {
 		return err
 	}
-	downloads.Message(false, "downloading %s", src)
+	downloads.Message(false, "downloading %s", redact.URL(src))
 
 	w := &resettableWriter{f: f, h: sha256.New()}
 	progress := downloads.Progress()
@@ -119,10 +127,10 @@ func fetchArtifact(ctx context.Context, src string, art *Artifact, f *os.File, d
 		return nil // unverifiable source (version.txt fallback)
 	}
 	if art.Size > 0 && n != art.Size {
-		return fmt.Errorf("size mismatch for %s: got %d bytes, want %d", src, n, art.Size)
+		return fmt.Errorf("size mismatch for %s: got %d bytes, want %d", redact.URL(src), n, art.Size)
 	}
 	if got := hex.EncodeToString(w.h.Sum(nil)); got != art.SHA256 {
-		return fmt.Errorf("integrity check failed for %s: sha256 %s, want %s", src, got, art.SHA256)
+		return fmt.Errorf("integrity check failed for %s: sha256 %s, want %s", redact.URL(src), got, art.SHA256)
 	}
 	return nil
 }

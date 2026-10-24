@@ -52,6 +52,9 @@ type Artifact struct {
 	// opposed to the version.txt fallback). An API answer without a digest
 	// is unexpected and fails closed when mirrors are in play.
 	FromAPI bool
+	Archive string
+	Entry   string
+	Extra   []string
 }
 
 type Adapter interface {
@@ -81,12 +84,12 @@ type descriptor struct {
 }
 
 // names lists the known kernels, best-first.
-var names = []string{mihomo, clash, singbox}
+var names = []string{mihomo, singbox, clash}
 
 var registry = map[string]descriptor{
 	mihomo:  {format: FormatClash, implemented: true},
+	singbox: {format: FormatSingBox, implemented: true},
 	clash:   {format: FormatClash},
-	singbox: {format: FormatSingBox},
 }
 
 // Names returns the known kernel names.
@@ -139,8 +142,16 @@ func List(cfg *config.Config) []Entry {
 		if cfg.KernelByName(name) != nil {
 			entry.Installed = true
 			entry.Selected = cfg.Use == name
+			if installed := cfg.KernelByName(name); installed.Type != "" {
+				entry.Format = FormatOf(installed.Type)
+			}
 		}
 		entries = append(entries, entry)
+	}
+	for _, item := range cfg.Kernels {
+		if !Known(item.Name) {
+			entries = append(entries, Entry{Name: item.Name, Format: FormatOf(item.Type), Installed: true, Selected: cfg.Use == item.Name, Implemented: true})
+		}
 	}
 	return entries
 }
@@ -150,16 +161,25 @@ func New(kernelCfg *config.KernelConfig) (Kernel, error) {
 }
 
 func NewWithDownloads(kernelCfg *config.KernelConfig, downloads *download.Downloader) (Kernel, error) {
-	switch kernelCfg.Name {
+	kind := kernelCfg.Type
+	if kind == "" {
+		kind = kernelCfg.Name
+	}
+	if kind == "custom" {
+		return &Custom{Service: unisvc.New(kernelCfg.Name, unisvc.WithScope(unisvc.ScopeUser)), cfg: *kernelCfg}, nil
+	}
+	switch kind {
 	case "", mihomo:
 		// User scope: the kernel lives under $HOME, so installing and
 		// operating the service needs no root.
 		return &Mihomo{
-			unisvc.New(mihomo, unisvc.WithScope(unisvc.ScopeUser)),
+			unisvc.New(kernelCfg.Name, unisvc.WithScope(unisvc.ScopeUser)),
 			*kernelCfg,
 			downloads,
 		}, nil
-	case clash, singbox:
+	case singbox:
+		return &SingBox{Service: unisvc.New(kernelCfg.Name, unisvc.WithScope(unisvc.ScopeUser)), cfg: *kernelCfg}, nil
+	case clash:
 		return nil, fmt.Errorf("kernel %q is not supported yet", kernelCfg.Name)
 	default:
 		return nil, fmt.Errorf("unknown kernel %q, known kernels: %s (implemented: %s)", kernelCfg.Name, strings.Join(Names(), ", "), strings.Join(ImplementedNames(), ", "))

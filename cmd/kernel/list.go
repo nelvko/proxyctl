@@ -33,7 +33,11 @@ func newListCmd() *cobra.Command {
 				if e.Selected {
 					marker = "*"
 				}
-				cmd.Printf("%s %s\t%s\t%s\n", marker, e.Name, e.Format, state)
+				format := string(e.Format)
+				if format == "" {
+					format = "-"
+				}
+				cmd.Printf("%s %s\t%s\t%s\n", marker, e.Name, format, state)
 			}
 			return nil
 		},

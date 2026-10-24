@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"strings"
 
 	"github.com/nelvko/proxyctl/internal/config"
 	"github.com/nelvko/proxyctl/internal/kernel"
@@ -14,19 +13,27 @@ import (
 	"github.com/nelvko/unisvc"
 )
 
-// InstallKernel downloads the kernel, installs its user service and
+// InstallKernel installs the kernel binary, installs its user service and
 // registers it. The first installed kernel becomes selected.
-func (a *App) InstallKernel(ctx context.Context, name string) error {
-	if !kernel.Known(name) {
-		return fmt.Errorf("unknown kernel %q, implemented: %s", name, strings.Join(kernel.ImplementedNames(), ", "))
-	}
-	if !kernel.Implemented(name) {
-		return fmt.Errorf("kernel %q is not supported yet", name)
-	}
-
+func (a *App) InstallKernel(ctx context.Context, name string, options ...config.KernelConfig) error {
 	kcfg, err := config.DefaultKernelConfig(name)
 	if err != nil {
 		return err
+	}
+	if existing := a.Config.KernelByName(name); existing != nil {
+		kcfg = *existing
+	}
+	if len(options) > 0 {
+		kcfg = options[0]
+	}
+	if kcfg.Name != name {
+		return fmt.Errorf("kernel name mismatch: %q != %q", kcfg.Name, name)
+	}
+	if kcfg.Type == "" && !kernel.Implemented(name) {
+		return fmt.Errorf("kernel %q needs --bin for a local installation", name)
+	}
+	if kcfg.Type == "custom" && kcfg.Source == "" {
+		return fmt.Errorf("kernel %q needs --bin", name)
 	}
 	k, err := a.makeKernel(&kcfg)
 	if err != nil {
@@ -38,20 +45,23 @@ func (a *App) InstallKernel(ctx context.Context, name string) error {
 		return fmt.Errorf("service management is not available on %s (systemd only for now)", is)
 	}
 
-	if err := os.MkdirAll(kcfg.ConfigDir, 0o755); err != nil {
-		return err
-	}
-	if _, err := os.Stat(kcfg.ConfigFile); errors.Is(err, os.ErrNotExist) {
-		f, err := os.Create(kcfg.ConfigFile)
-		if err != nil {
+	if kcfg.Type != "custom" {
+		if err := os.MkdirAll(kcfg.ConfigDir, 0o755); err != nil {
 			return err
 		}
-		f.Close()
+		if _, err := os.Stat(kcfg.ConfigFile); errors.Is(err, os.ErrNotExist) {
+			f, err := os.Create(kcfg.ConfigFile)
+			if err != nil {
+				return err
+			}
+			f.Close()
+		}
 	}
-
-	// ErrUpToDate means the binary on disk already is the latest release
-	// (e.g. re-running install): keep going and converge the service setup.
-	if err := a.downloadKernel(ctx, k, kcfg.Bin); err != nil && !errors.Is(err, kernel.ErrUpToDate) {
+	if kcfg.Source != "" {
+		if err := kernel.InstallLocal(ctx, kcfg.Source, kcfg.Bin, kcfg.Type == "sing-box"); err != nil {
+			return err
+		}
+	} else if err := a.downloadKernel(ctx, k, kcfg.Bin); err != nil && !errors.Is(err, kernel.ErrUpToDate) {
 		return err
 	}
 
@@ -232,9 +242,9 @@ func (a *App) UninstallKernel(name string) error {
 	return config.Save(a.Config)
 }
 
-// UpgradeKernel replaces the kernel binary with the latest release. An
-// empty name upgrades the selected kernel. The service is restarted if it
-// was running.
+// UpgradeKernel downloads the latest built-in release or recopies the saved
+// local binary. An empty name selects the current kernel. A running service
+// is restarted after the binary changes.
 func (a *App) UpgradeKernel(ctx context.Context, name string) error {
 	if name == "" {
 		name = a.Config.Use
@@ -257,7 +267,11 @@ func (a *App) UpgradeKernel(ctx context.Context, name string) error {
 		wasRunning = on
 	}
 
-	if err := a.downloadKernel(ctx, k, kcfg.Bin); err != nil {
+	if kcfg.Source != "" {
+		if err := kernel.InstallLocal(ctx, kcfg.Source, kcfg.Bin, kcfg.Type == "sing-box"); err != nil {
+			return err
+		}
+	} else if err := a.downloadKernel(ctx, k, kcfg.Bin); err != nil {
 		return err
 	}
 	if wasRunning {

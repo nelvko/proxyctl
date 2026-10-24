@@ -9,17 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// upgradeCmd replaces a kernel binary with the latest release.
+// upgradeCmd refreshes a kernel binary from its configured source.
 func newUpgradeCmd() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "upgrade [name]",
-		Short: "Upgrade a kernel to the latest release",
-		Long: `Upgrade a kernel to the latest release.
+		Short: "Refresh a kernel binary",
+		Long: `Download the latest built-in release or copy the saved local binary again.
 
-Run without an argument to upgrade the active kernel.
+Run without an argument to refresh the selected kernel.
 The service is restarted if it was running.
 
-Downloads try any configured mirror (--mirror flag, the mirror
+Built-in downloads try any configured mirror (--mirror flag, the mirror
 config key, or the GH_PROXY env variable) before github.com
 itself, and verify each source against the release digest from
 the GitHub API.`,
@@ -30,13 +30,20 @@ the GitHub API.`,
 			if err != nil {
 				return err
 			}
-			// Not persisted: only `install` writes the mirror choice.
-			if ms, _ := cmd.Flags().GetStringSlice("mirror"); len(ms) > 0 {
-				a.Config.Mirror = strings.Join(ms, ",")
-			}
 			name := ""
 			if len(args) == 1 {
 				name = args[0]
+			}
+			target := name
+			if target == "" {
+				target = a.Config.Use
+			}
+			if entry := a.Config.KernelByName(target); entry != nil && entry.Source != "" && cmd.Flags().Changed("mirror") {
+				return fmt.Errorf("--mirror applies only to built-in downloads")
+			}
+			// Not persisted: only `install` writes the mirror choice.
+			if ms, _ := cmd.Flags().GetStringSlice("mirror"); len(ms) > 0 {
+				a.Config.Mirror = strings.Join(ms, ",")
 			}
 			if err := a.UpgradeKernel(cmd.Context(), name); err != nil {
 				if errors.Is(err, pkernel.ErrUpToDate) {
@@ -55,6 +62,6 @@ the GitHub API.`,
 			return nil
 		}),
 	}
-	command.Flags().StringSlice("mirror", nil, "GitHub mirror prefix(es) for downloads, e.g. https://ghfast.top (GH_PROXY env overrides)")
+	command.Flags().StringSlice("mirror", nil, "GitHub mirror prefix(es) for built-in downloads")
 	return command
 }

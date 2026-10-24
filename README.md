@@ -2,7 +2,8 @@
 
 Manage proxy kernels as user services, subscription profiles, and proxy
 settings in individual shells. Service management currently requires Linux
-with systemd; mihomo is the implemented kernel.
+with systemd. Mihomo and sing-box have built-in installation presets; other
+executables can be installed from local files.
 
 ## Quick start
 
@@ -18,6 +19,24 @@ proxyctl status
 proxyctl off
 ```
 
+To use sing-box, start with `proxyctl install sing-box` and add a sing-box JSON
+subscription. Its active file is `config.json`; Mihomo uses Clash YAML.
+
+For another kernel, download and extract its executable first, then install it
+from a local file:
+
+```sh
+proxyctl install mycore --bin ./mycore
+# For a compatible Mihomo or sing-box fork:
+proxyctl install myfork --bin ./myfork --type mihomo
+```
+
+The file is copied into proxyctl's managed directory; the original stays in
+place. A custom kernel has a basic user service. Subscription validation and
+`on` require a compatible built-in adapter selected with `--type mihomo` or
+`--type sing-box`. `upgrade mycore` copies the saved local file again; run
+`install mycore --bin /path/to/new/binary` to change its source.
+
 For fish, add `proxyctl init fish | source` to `config.fish`.
 
 `on` starts the selected kernel when needed, waits for its proxy endpoint,
@@ -32,9 +51,9 @@ verbs. Subscriptions have their own `sub` namespace.
 
 | Command | Behavior |
 | --- | --- |
-| `install [name]` | Download and install a kernel and its user service. With no name, choose interactively. The first installed kernel is selected. |
+| `install [name]` | Download and install Mihomo or sing-box, or install a local executable with `--bin`. With no name, choose a built-in preset interactively. The first installed kernel is selected. |
 | `uninstall <name>` | Stop and remove the kernel's service, binary, managed config directory and registration. |
-| `upgrade [name]` | Upgrade the named kernel, or the selected kernel. Restart it if it was running. |
+| `upgrade [name]` | Download the latest built-in release or recopy the saved local file. Restart a running service. |
 | `list` | List known kernels, installation status and the selected kernel. |
 | `use [name]` | Select an installed kernel (choose interactively when omitted) and apply its selected compatible subscription. If none is selected for that format, leave the target service stopped. |
 | `start` | Start the selected shared kernel service without changing shell variables. |
