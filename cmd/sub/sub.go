@@ -48,8 +48,12 @@ func selectProfile(cmd *cobra.Command, args []string, svc *subscription.Service)
 	if !isInteractive() {
 		return "", fmt.Errorf("a profile name is required; run `%s <name>`", cmd.CommandPath())
 	}
-	options := make([]huh.Option[string], 0, len(svc.List()))
-	for _, p := range svc.List() {
+	profiles := svc.List()
+	if cmd.Name() == "use" || cmd.Name() == "edit" {
+		profiles = svc.Compatible()
+	}
+	options := make([]huh.Option[string], 0, len(profiles))
+	for _, p := range profiles {
 		options = append(options, huh.NewOption(p.Name, p.Name))
 	}
 	if len(options) == 0 {

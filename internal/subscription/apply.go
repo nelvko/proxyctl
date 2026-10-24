@@ -3,6 +3,7 @@ package subscription
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 )
@@ -16,6 +17,9 @@ func (s *Service) Use(profileName string) (ApplicationState, error) {
 	})
 	if i == -1 {
 		return "", fmt.Errorf("can't find %s profile", profileName)
+	}
+	if err := s.requireCompatible(s.subConfig.Profiles[i]); err != nil {
+		return "", err
 	}
 
 	useFile := s.subConfig.Profiles[i].File
@@ -52,9 +56,15 @@ func (s *Service) Use(profileName string) (ApplicationState, error) {
 		}
 	}
 	previousName := s.subConfig.Use
+	previousByFormat := maps.Clone(s.subConfig.UseByFormat)
 	s.subConfig.Use = profileName
+	if s.subConfig.UseByFormat == nil {
+		s.subConfig.UseByFormat = make(map[string]string)
+	}
+	s.subConfig.UseByFormat[string(s.kernel.ConfigFormat())] = profileName
 	if err := s.save(); err != nil {
 		s.subConfig.Use = previousName
+		s.subConfig.UseByFormat = previousByFormat
 		restoreErr := restoreConfig(kernelCfg, old, oldErr)
 		if restoreErr == nil && running {
 			restoreErr = s.kernel.Restart()

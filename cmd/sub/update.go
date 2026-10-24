@@ -14,7 +14,7 @@ func newUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "update [name...]", Short: "Refresh the selected or explicitly named subscription profiles",
 		Long: `Refresh named profiles, or the selected profile when no names are supplied.
-Use --all to update every profile. Names and --all are mutually exclusive.
+Use --all to update every profile compatible with the selected kernel. Names and --all are mutually exclusive.
 Validated downloads replace local edits. The selected profile is applied when
 necessary; running kernels restart and stopped kernels remain stopped.
 Download flags override saved settings for this invocation only, including --all.
@@ -38,6 +38,9 @@ file:// sources are read again from the original file path.`,
 			if len(svc.List()) == 0 {
 				return errors.New("no profiles; run proxyctl sub add <url> first")
 			}
+			if all && len(svc.Compatible()) == 0 {
+				return errors.New("no profiles are compatible with the selected kernel")
+			}
 			if len(args) == 0 && !all {
 				if svc.SelectedName() == "" {
 					return errors.New("no profile is selected; specify a name or use --all")
@@ -51,7 +54,7 @@ file:// sources are read again from the original file path.`,
 			return err
 		}),
 	}
-	cmd.Flags().BoolVar(&all, "all", false, "Update every saved profile")
+	cmd.Flags().BoolVar(&all, "all", false, "Update every profile compatible with the selected kernel")
 	cmd.Flags().BoolVar(&keepFailed, "keep-failed", false, "Keep complete downloads that fail validation in diagnostics/; remove them manually after inspection")
 	download.bind(cmd, true)
 	return cmd

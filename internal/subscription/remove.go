@@ -3,6 +3,7 @@ package subscription
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 )
@@ -16,11 +17,17 @@ func (s *Service) Delete(profileName string, force bool) error {
 		return err
 	}
 	selected := s.SelectedName() == profileName
+	for _, name := range s.subConfig.UseByFormat {
+		if name == profileName {
+			selected = true
+		}
+	}
 	if selected && !force {
 		return fmt.Errorf("profile %q is currently in use", profileName)
 	}
 	previous := *s.subConfig
 	previous.Profiles = slices.Clone(previous.Profiles)
+	previous.UseByFormat = maps.Clone(previous.UseByFormat)
 	var applied []byte
 	var appliedErr error
 	wasRunning := false
@@ -36,7 +43,7 @@ func (s *Service) Delete(profileName string, force bool) error {
 		}
 		return cause
 	}
-	if selected && s.kernel != nil {
+	if s.SelectedName() == profileName && s.kernel != nil {
 		wasRunning, err = s.kernel.IsActive()
 		if err != nil {
 			return err
@@ -54,7 +61,14 @@ func (s *Service) Delete(profileName string, force bool) error {
 		}
 	}
 	if selected {
-		s.subConfig.Use = ""
+		if s.subConfig.Use == profileName {
+			s.subConfig.Use = ""
+		}
+		for format, name := range s.subConfig.UseByFormat {
+			if name == profileName {
+				delete(s.subConfig.UseByFormat, format)
+			}
+		}
 	}
 	s.subConfig.Profiles = slices.DeleteFunc(s.subConfig.Profiles, func(p profile) bool { return p.Name == profileName })
 	if err := s.save(); err != nil {

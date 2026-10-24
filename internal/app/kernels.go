@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
@@ -83,43 +84,80 @@ func (a *App) UseKernel(ctx context.Context, name string) error {
 	if err := a.LoadSubscriptions(); err != nil {
 		return err
 	}
-	svc := subscription.NewService(a.Subscriptions, next).WithContext(ctx)
-	profile, profileErr := svc.Selected()
-	if profileErr != nil && !errors.Is(profileErr, subscription.ErrNoSelectedProfile) {
-		return profileErr
-	}
-	if profileErr == nil {
-		if err := next.TestConfig(ctx, profile.File); err != nil {
-			return err
-		}
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	previousName := a.Config.Use
 	previous := a.Config.SelectedKernel()
+	previousUse := a.Subscriptions.Use
+	previousSelections := maps.Clone(a.Subscriptions.UseByFormat)
 	var old kernel.Kernel
-	wasRunning := false
-	if previous != nil && previousName != name {
-		if kernel.FormatOf(previousName) != kernel.FormatOf(name) && profileErr == nil {
-			return fmt.Errorf("selected subscription uses %s format, incompatible with kernel %q (%s)", kernel.FormatOf(previousName), name, kernel.FormatOf(name))
-		}
+	if previous != nil {
 		old, err = a.makeKernel(previous)
 		if err != nil {
 			return err
 		}
+	}
+	if a.Subscriptions.UseByFormat == nil {
+		a.Subscriptions.UseByFormat = make(map[string]string)
+	}
+	if old != nil && previousUse != "" {
+		a.Subscriptions.UseByFormat[string(old.ConfigFormat())] = previousUse
+	}
+	selected := a.Subscriptions.UseByFormat[string(next.ConfigFormat())]
+	if old == nil && previousUse != "" {
+		for _, p := range a.Subscriptions.Profiles {
+			format := p.Format
+			if format == "" {
+				format = string(kernel.FormatClash)
+			}
+			if p.Name == previousUse && format == string(next.ConfigFormat()) {
+				selected = previousUse
+				break
+			}
+		}
+	}
+	a.Subscriptions.Use = selected
+	restoreSelection := func() {
+		a.Subscriptions.Use = previousUse
+		a.Subscriptions.UseByFormat = maps.Clone(previousSelections)
+	}
+	svc := subscription.NewService(a.Subscriptions, next).WithContext(ctx)
+	profile, profileErr := svc.Selected()
+	if profileErr != nil && !errors.Is(profileErr, subscription.ErrNoSelectedProfile) {
+		restoreSelection()
+		return profileErr
+	}
+	if profileErr == nil {
+		if err := next.TestConfig(ctx, profile.File); err != nil {
+			restoreSelection()
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		restoreSelection()
+		return err
+	}
+	wasRunning := false
+	if previous != nil && previousName != name {
 		wasRunning, err = old.IsActive()
 		if err != nil {
+			restoreSelection()
 			return err
 		}
 		if wasRunning {
 			if err := old.Stop(); err != nil {
+				restoreSelection()
 				return err
 			}
 		}
 	}
 	rollback := func(cause error) error {
 		a.Config.Use = previousName
+		restoreSelection()
+		if err := config.Save(a.Config); err != nil {
+			cause = errors.Join(cause, err)
+		}
+		if err := config.SaveSubscriptionConfig(a.Subscriptions); err != nil {
+			cause = errors.Join(cause, err)
+		}
 		if old != nil && wasRunning {
 			if err := next.Stop(); err != nil {
 				return errors.Join(cause, fmt.Errorf("stop target kernel during rollback: %w", err))
@@ -135,7 +173,7 @@ func (a *App) UseKernel(ctx context.Context, name string) error {
 			return rollback(err)
 		}
 	}
-	if wasRunning {
+	if wasRunning && profileErr == nil {
 		if err := next.Start(); err != nil {
 			return rollback(err)
 		}
@@ -149,6 +187,9 @@ func (a *App) UseKernel(ctx context.Context, name string) error {
 	}
 	a.Config.Use = name
 	if err := config.Save(a.Config); err != nil {
+		return rollback(err)
+	}
+	if err := config.SaveSubscriptionConfig(a.Subscriptions); err != nil {
 		return rollback(err)
 	}
 	return nil

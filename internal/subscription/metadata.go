@@ -3,6 +3,7 @@ package subscription
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -33,6 +34,7 @@ func (s *Service) Set(name string, next config.Profile) error {
 	next.File = current.File
 	old := *s.subConfig
 	old.Profiles = slices.Clone(old.Profiles)
+	old.UseByFormat = maps.Clone(old.UseByFormat)
 	for i := range s.subConfig.Profiles {
 		if s.subConfig.Profiles[i].Name == name {
 			s.subConfig.Profiles[i] = next.Clone()
@@ -41,6 +43,11 @@ func (s *Service) Set(name string, next config.Profile) error {
 	}
 	if s.subConfig.Use == name {
 		s.subConfig.Use = next.Name
+	}
+	for format, selected := range s.subConfig.UseByFormat {
+		if selected == name {
+			s.subConfig.UseByFormat[format] = next.Name
+		}
 	}
 	if err := s.save(); err != nil {
 		*s.subConfig = old

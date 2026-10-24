@@ -202,7 +202,11 @@ func (s *Service) validateDownload(path string) error {
 	if readErr != nil {
 		return errors.Join(errors.New(reason), readErr)
 	}
-	f, saveErr := os.CreateTemp(dir, "invalid-*.yaml")
+	ext := ".yaml"
+	if s.kernel.ConfigFormat() == kernel.FormatSingBox {
+		ext = ".json"
+	}
+	f, saveErr := os.CreateTemp(dir, "invalid-*"+ext)
 	if saveErr != nil {
 		return errors.Join(errors.New(reason), saveErr)
 	}

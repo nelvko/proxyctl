@@ -33,6 +33,11 @@ func (s *Service) Update(options DownloadOptions, names ...string) ([]UpdateResu
 	var results []UpdateResult
 	var errs []error
 	for _, p := range targets {
+		if err := s.requireCompatible(p); err != nil {
+			results = append(results, UpdateResult{Name: p.Name, Status: UpdateFailed, Err: err})
+			errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
+			continue
+		}
 		if err := s.ctx.Err(); err != nil {
 			errs = append(errs, err)
 			break
@@ -65,7 +70,7 @@ func (s *Service) Update(options DownloadOptions, names ...string) ([]UpdateResu
 
 func (s *Service) resolveTargets(names []string) ([]profile, error) {
 	if len(names) == 0 {
-		return s.List(), nil
+		return s.Compatible(), nil
 	}
 	targets := make([]profile, 0, len(names))
 	for _, name := range names {

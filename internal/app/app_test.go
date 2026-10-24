@@ -16,6 +16,7 @@ type testKernel struct {
 	endpointErr error
 	kernel.Kernel
 	file                             string
+	format                           kernel.ConfigFormat
 	running                          bool
 	starts, stops, restarts          int
 	startErr, stopErr, validationErr error
@@ -23,8 +24,14 @@ type testKernel struct {
 
 func (k *testKernel) ProxyEndpoints() (kernel.Endpoints, error) { return k.endpoints, k.endpointErr }
 func (k *testKernel) ConfigFile() string                        { return k.file }
-func (k *testKernel) TestConfig(context.Context, string) error  { return k.validationErr }
-func (k *testKernel) IsActive() (bool, error)                   { return k.running, nil }
+func (k *testKernel) ConfigFormat() kernel.ConfigFormat {
+	if k.format != "" {
+		return k.format
+	}
+	return kernel.FormatClash
+}
+func (k *testKernel) TestConfig(context.Context, string) error { return k.validationErr }
+func (k *testKernel) IsActive() (bool, error)                  { return k.running, nil }
 func (k *testKernel) Start() error {
 	k.starts++
 	if k.startErr != nil {
@@ -66,6 +73,27 @@ func switchingApp(t *testing.T, running bool) (*App, *testKernel, *testKernel) {
 		},
 	}
 	return a, old, next
+}
+
+func TestUseKernelKeepsSelectionsByFormat(t *testing.T) {
+	a, old, next := switchingApp(t, true)
+	a.Config.Kernels[1].Name = "sing-box"
+	next.format = kernel.FormatSingBox
+	if err := a.UseKernel(context.Background(), "sing-box"); err != nil {
+		t.Fatal(err)
+	}
+	if a.Subscriptions.Use != "" || a.Subscriptions.UseByFormat["clash"] != "one" {
+		t.Fatalf("selection = %+v", a.Subscriptions)
+	}
+	if old.running || next.running {
+		t.Fatal("started sing-box with a Clash profile")
+	}
+	if err := a.UseKernel(context.Background(), "mihomo"); err != nil {
+		t.Fatal(err)
+	}
+	if a.Subscriptions.Use != "one" {
+		t.Fatalf("Clash selection not restored: %q", a.Subscriptions.Use)
+	}
 }
 
 func TestUseKernelPreservesRunningState(t *testing.T) {

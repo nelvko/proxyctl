@@ -16,7 +16,11 @@ func ProfileDetails(p config.Profile, selected string, showURL bool) string {
 	if showURL {
 		source = p.URL
 	}
-	out := fmt.Sprintf("name:       %s\nselected:   %t\nsource:     %s\ncache:      %s\n", p.Name, p.Name == selected, source, p.File)
+	format := p.Format
+	if format == "" {
+		format = "clash"
+	}
+	out := fmt.Sprintf("name:       %s\nformat:     %s\nselected:   %t\nsource:     %s\ncache:      %s\n", p.Name, format, p.Name == selected, source, p.File)
 	if strings.HasPrefix(p.URL, "file://") {
 		return out + "source type: linked local file (update reads the original path again)\ndownload:   HTTP settings do not apply to file sources\n"
 	}

@@ -28,7 +28,7 @@ func TestSubscriptionConfigRejectsUnknownSettings(t *testing.T) {
 func TestSubscriptionDownloadSchemaRoundTrip(t *testing.T) {
 	dir := useTestDir(t)
 	want := DownloadConfig{Timeout: 25 * time.Second, UserAgent: "proxyctl-test", DownloadVia: "direct", SkipCert: true, Headers: map[string]string{"X-Test": "value"}}
-	if err := SaveSubscriptionConfig(&SubscriptionConfig{Profiles: []Profile{{Name: "work", Download: want}}}); err != nil {
+	if err := SaveSubscriptionConfig(&SubscriptionConfig{Use: "work", UseByFormat: map[string]string{"sing-box": "work"}, Profiles: []Profile{{Name: "work", Format: "sing-box", Download: want}}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "subscriptions.yaml"))
@@ -48,6 +48,9 @@ func TestSubscriptionDownloadSchemaRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := got.Profiles[0].Download
+	if got.UseByFormat["sing-box"] != "work" || got.Profiles[0].Format != "sing-box" {
+		t.Fatalf("format selection lost: %+v", got)
+	}
 	if d.Timeout != want.Timeout || d.UserAgent != want.UserAgent || d.DownloadVia != want.DownloadVia || d.SkipCert != want.SkipCert || d.Headers["x-test"] != "value" {
 		t.Fatalf("settings lost: %+v", d)
 	}

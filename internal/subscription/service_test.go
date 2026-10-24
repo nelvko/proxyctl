@@ -77,6 +77,14 @@ func addTestProfile(svc *Service, draft *profile) error {
 	return nil
 }
 
+func TestUseRejectsOtherKernelFormat(t *testing.T) {
+	svc, _ := newTestService(t)
+	svc.subConfig.Profiles = []config.Profile{{Name: "json", Format: "sing-box", File: "/unused.json"}}
+	if _, err := svc.Use("json"); err == nil || !strings.Contains(err.Error(), "sing-box") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func (f *fakeKernel) Stop() error { f.stopped = true; return nil }
 
 func writeFile(t *testing.T, path, content string) string {

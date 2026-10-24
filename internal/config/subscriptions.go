@@ -13,14 +13,16 @@ import (
 // the selected profile and the profile list. Same rule as Config —
 // persisted fields only, nothing runtime-derived.
 type SubscriptionConfig struct {
-	Use      string    `mapstructure:"use"`
-	Profiles []Profile `mapstructure:"profiles"`
+	Use         string            `mapstructure:"use"`
+	UseByFormat map[string]string `mapstructure:"usebyformat"`
+	Profiles    []Profile         `mapstructure:"profiles"`
 }
 
 type Profile struct {
-	Name string `mapstructure:"name"`
-	URL  string `mapstructure:"url"`
-	File string `mapstructure:"file"`
+	Name   string `mapstructure:"name"`
+	URL    string `mapstructure:"url"`
+	File   string `mapstructure:"file"`
+	Format string `mapstructure:"format"`
 
 	Download DownloadConfig `mapstructure:"download"`
 }

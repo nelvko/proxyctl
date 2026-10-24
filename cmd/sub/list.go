@@ -20,7 +20,11 @@ func newListCmd() *cobra.Command {
 				if p.Name == svc.SelectedName() {
 					marker = "*"
 				}
-				cmd.Printf("%s %s\t%s\n", marker, p.Name, redact.URL(p.URL))
+				format := p.Format
+				if format == "" {
+					format = "clash"
+				}
+				cmd.Printf("%s %s\t%s\t%s\n", marker, p.Name, format, redact.URL(p.URL))
 			}
 			return nil
 		},

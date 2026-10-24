@@ -18,6 +18,7 @@ type profile = config.Profile
 
 // Runtime contains only the kernel operations used by subscriptions.
 type Runtime interface {
+	ConfigFormat() kernel.ConfigFormat
 	ProxyEndpoints() (kernel.Endpoints, error)
 	ConfigFile() string
 	TestConfig(context.Context, string) error
@@ -57,6 +58,20 @@ func (s *Service) List() []profile {
 	return profiles
 }
 
+// Compatible returns profiles understood by the selected kernel.
+func (s *Service) Compatible() []profile {
+	if s.kernel == nil {
+		return s.List()
+	}
+	var profiles []profile
+	for _, p := range s.List() {
+		if s.requireCompatible(p) == nil {
+			profiles = append(profiles, p)
+		}
+	}
+	return profiles
+}
+
 func (s *Service) SelectedName() string {
 	return s.subConfig.Use
 }
@@ -79,7 +94,23 @@ func (s *Service) Selected() (profile, error) {
 	if err != nil {
 		return profile{}, fmt.Errorf("failed to get current profile: %w", err)
 	}
+	if s.kernel != nil {
+		if err := s.requireCompatible(p); err != nil {
+			return profile{}, err
+		}
+	}
 	return p, nil
+}
+
+func (s *Service) requireCompatible(p profile) error {
+	format := p.Format
+	if format == "" {
+		format = string(kernel.FormatClash)
+	}
+	if current := string(s.kernel.ConfigFormat()); current != format {
+		return fmt.Errorf("profile %q uses %s configuration; selected kernel uses %s", p.Name, format, current)
+	}
+	return nil
 }
 
 // ErrNoRuntime indicates an operation requiring validation/application was

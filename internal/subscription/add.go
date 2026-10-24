@@ -17,6 +17,10 @@ func (s *Service) Add(draft *profile) error {
 	if draft == nil {
 		return errors.New("profile is nil")
 	}
+	draft.Format = string(s.kernel.ConfigFormat())
+	if draft.Format == "" {
+		return errors.New("selected kernel has no subscription format; reinstall with --format")
+	}
 
 	if err := validateProfile(*draft); err != nil {
 		return err
@@ -67,7 +71,11 @@ func (s *Service) Add(draft *profile) error {
 		return err
 	}
 
-	draft.File = filepath.Join(profilesDir, "profile-"+strings.TrimPrefix(filepath.Base(tmpName), ".profile-")+".yaml")
+	ext := ".yaml"
+	if draft.Format == "sing-box" {
+		ext = ".json"
+	}
+	draft.File = filepath.Join(profilesDir, "profile-"+strings.TrimPrefix(filepath.Base(tmpName), ".profile-")+ext)
 	if err := tmpFile.Close(); err != nil {
 		return err
 	}

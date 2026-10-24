@@ -21,11 +21,14 @@ func (s *Service) BeginEdit(profileName string) (*EditSession, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.requireCompatible(p); err != nil {
+		return nil, err
+	}
 	original, err := os.ReadFile(p.File)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.CreateTemp(filepath.Dir(p.File), ".edit-*.yaml")
+	f, err := os.CreateTemp(filepath.Dir(p.File), ".edit-*"+filepath.Ext(p.File))
 	if err != nil {
 		return nil, err
 	}

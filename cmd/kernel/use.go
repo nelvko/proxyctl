@@ -10,8 +10,9 @@ func newUseCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "use [name]", Short: "Select an installed kernel",
 		Long: `Select an installed kernel; without a name, choose interactively.
-Apply the selected subscription. If the previous kernel was running, move the
-running session to the new one; otherwise keep the service stopped.
+Apply a selected subscription of the target kernel's format. If the previous
+kernel was running and the target has a subscription, move the running session;
+otherwise keep the target service stopped.
 Shell environment variables are unchanged.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {

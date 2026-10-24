@@ -36,7 +36,7 @@ verbs. Subscriptions have their own `sub` namespace.
 | `uninstall <name>` | Stop and remove the kernel's service, binary, managed config directory and registration. |
 | `upgrade [name]` | Upgrade the named kernel, or the selected kernel. Restart it if it was running. |
 | `list` | List known kernels, installation status and the selected kernel. |
-| `use [name]` | Select an installed kernel (choose interactively when omitted) and apply the selected subscription. Move a running session to the new kernel; keep a stopped session stopped. |
+| `use [name]` | Select an installed kernel (choose interactively when omitted) and apply its selected compatible subscription. If none is selected for that format, leave the target service stopped. |
 | `start` | Start the selected shared kernel service without changing shell variables. |
 | `stop` | Stop the selected shared service without changing shell variables. |
 | `restart` | Restart the selected shared service, starting it if stopped. |
@@ -62,7 +62,7 @@ shells that use it.
 | `sub add [url]` | Download, validate and save a profile. With no URL, prompt for its source and name. Does not select it or start a service. If no profile is selected, show the next steps: `sub use <name>` and `on`. |
 | `sub add <url> --use` | Also select and apply the added profile, preserving service running state. |
 | `sub use [name]` | Select and apply a profile. Restart a running kernel; stage the configuration when stopped. |
-| `sub update [name...]` | Fetch named profiles from their sources, or the selected profile when no names are supplied. Use `--all` to update every profile; names and `--all` are mutually exclusive. Apply changes to the selected profile without starting a stopped service. |
+| `sub update [name...]` | Fetch named profiles from their sources, or the selected profile when no names are supplied. Use `--all` to update every profile compatible with the selected kernel; names and `--all` are mutually exclusive. Apply changes to the selected profile without starting a stopped service. |
 | `sub edit [name]` | Edit a temporary copy using `$EDITOR` or `--editor`. Validate before replacing the local profile. Does not apply the edit. |
 | `sub edit [name] --apply` | Also select and apply the edited profile, preserving service running state. |
 | `sub remove [name]` | Remove an unselected profile and its cached file, preserving the remote or file URL source. |
@@ -73,6 +73,11 @@ shells that use it.
 For `use`, `edit` and `remove`, omitting the name prompts for the target of
 that operation. Scripts must supply a name. The general manager is opened
 only by `proxyctl sub`; there is no global `--interactive` flag.
+
+Profiles record their configuration format. `sub list` shows profiles of all
+formats; `sub use`, `edit`, and `update` require a compatible selected kernel.
+Switching between Mihomo and sing-box remembers one selected profile per
+format and never applies Clash YAML to sing-box or sing-box JSON to Mihomo.
 
 Sources can use HTTP, HTTPS or `file://` URLs. An update replaces local edits
 with source content. After a local edit, use `sub use <name>` or `edit --apply`
