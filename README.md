@@ -14,18 +14,39 @@ executable, provide a name and `--bin`, with `--type` for a compatible fork.
 
 ```sh
 proxyctl install mihomo
-proxyctl sub add 'https://example.com/subscription' --name work --use
 
 # Add this to ~/.bashrc or ~/.zshrc, using the matching shell name:
 eval "$(proxyctl init zsh)"
 
+# The initial configuration uses direct connections; no subscription is required.
 proxyctl on
 proxyctl status
 proxyctl off
+
+# Select a subscription when you want to use its configuration:
+proxyctl sub add 'https://example.com/subscription' --name work --use
+proxyctl on
 ```
 
-To use sing-box, start with `proxyctl install sing-box` and add a sing-box JSON
-subscription. Its active file is `config.json`; Mihomo uses Clash YAML.
+Mihomo and sing-box installations initialize a minimal valid configuration with
+a mixed HTTP/SOCKS listener at `127.0.0.1:7890` and direct outbound routing.
+Subscriptions are optional: `start` needs a valid kernel configuration, while
+`on` also needs a usable proxy inbound. Neither command requires a selected
+subscription. `on` labels the built-in default as
+`(direct; default configuration)`; `status` shows `config: default (direct)`.
+This label is based on an exact match with the built-in configuration, not
+merely the absence of a selected subscription.
+
+Existing nonempty configuration files are preserved, including manual
+configurations. `start`, `restart`, `on` and kernel switching also initialize
+missing managed configuration files and repair older zero-byte placeholders
+with the minimal default. Invalid nonempty files report validation errors
+instead of being replaced. Adding a subscription without `--use` only validates
+and caches it; it leaves the active default or manual configuration unchanged.
+
+To use sing-box, start with `proxyctl install sing-box`. Add a sing-box JSON
+subscription when needed. Its active file is `config.json`; Mihomo uses Clash
+YAML.
 
 For another kernel, download and extract its executable first, then install it
 from a local file:
@@ -66,16 +87,16 @@ verbs. Subscriptions have their own `sub` namespace.
 
 | Command | Behavior |
 | --- | --- |
-| `install [name]` | Download and install Mihomo or sing-box, or install a local executable with `--bin`. With no name, choose a built-in kernel with format and installation status shown. The first installed kernel is selected. |
+| `install [name]` | Download and install Mihomo or sing-box with a minimal direct configuration, or install a local executable with `--bin`. Existing nonempty configuration is preserved. With no name, choose a built-in kernel with format and installation status shown. The first installed kernel is selected. |
 | `uninstall <name>` | Stop and remove the kernel's service, binary, managed config directory and registration. |
 | `upgrade [name]` | Download the latest built-in release or recopy the saved local file. Restart a running service. |
 | `list` | List known kernels, installation status and the selected kernel. |
-| `use [name]` | Select an installed kernel (choose interactively when omitted) and apply its selected compatible subscription. If none is selected for that format, leave the target service stopped. |
-| `start` | Start the selected shared kernel service without changing shell variables. |
+| `use [name]` | Select an installed kernel (choose interactively when omitted) and apply its selected compatible subscription, or use its existing/default configuration. Preserve whether the previous selected service was running, including when no subscription is selected. |
+| `start` | Start the selected shared kernel service with its valid configuration, without requiring a subscription or changing shell variables. |
 | `stop` | Stop the selected shared service without changing shell variables. |
 | `restart` | Restart the selected shared service, starting it if stopped. |
 | `status [--json]` | Show the selected kernel, shared service, proxy endpoints, shell variables and subscription. Use `--json` for structured output. |
-| `on` | Enable the current shell's proxy variables, starting the service if needed. |
+| `on` | Enable the current shell's proxy variables after checking its inbound and starting the service if needed. A selected subscription is optional. |
 | `off [--stop]` | Clear the current shell's proxy variables. With `--stop`, also stop the selected shared kernel service. |
 | `env [--unset]` | Print shell statements without starting or stopping a service. `--unset` works without a kernel or valid configuration. |
 | `init [shell]` | Print integration code for bash, zsh or fish. Does not edit shell configuration files. |
@@ -89,13 +110,16 @@ shells that use it.
 `unknown` (query failure) and `unavailable` (no selected kernel). Local query
 failures have a redacted `error` field; unknown profile totals are `null`.
 If the main configuration cannot be loaded, the command exits nonzero without
-writing a JSON object. Default text output is unchanged.
+writing a JSON object.
 
 Proxy endpoints are read from saved configuration without testing connectivity;
 `proxy.state = "available"` means an endpoint is configured. Endpoints hide
 credentials, and `shell.proxy_variables` contains only nonempty variable names,
 including the upper/lowercase HTTP, HTTPS, ALL and NO_PROXY names. No variable
 values or subscription source URLs are included.
+`proxy.default_config` is `true` when the active file exactly matches the
+built-in direct template, `false` for another readable configuration, and
+`null` when the configuration cannot be read.
 
 ## Subscriptions
 
@@ -106,7 +130,7 @@ values or subscription source URLs are included.
 | --- | --- |
 | `sub` | Open the interactive subscription manager. Requires a terminal. |
 | `sub list` | List saved profiles without requiring an installed kernel. |
-| `sub add [url]` | Download, validate and save a profile. With no URL, prompt for its source and name. Does not select it or start a service. If no profile is selected, show the next steps: `sub use <name>` and `on`. |
+| `sub add [url]` | Download, validate and save a profile. With no URL, prompt for its source and name. Does not select it, change the active configuration or start a service. If no profile is selected, explain how to apply it with `sub use <name>`. |
 | `sub add <url> --use` | Also select and apply the added profile, preserving service running state. |
 | `sub use [name]` | Select and apply a profile. Restart a running kernel; stage the configuration when stopped. |
 | `sub update [name...]` | Fetch named profiles from their sources, or the selected profile when no names are supplied. Use `--all` to update every profile compatible with the selected kernel; names and `--all` are mutually exclusive. Apply changes to the selected profile without starting a stopped service. |
@@ -125,6 +149,10 @@ Profiles record their configuration format. `sub list` shows profiles of all
 formats; `sub use`, `edit`, and `update` require a compatible selected kernel.
 Switching between Mihomo and sing-box remembers one selected profile per
 format and never applies Clash YAML to sing-box or sing-box JSON to Mihomo.
+When the target format has no selected profile, switching uses that kernel's
+existing or minimal direct configuration and preserves the running/stopped
+state. Adding a profile alone does not replace that configuration; use
+`sub use <name>` or `sub add ... --use` to select and apply it.
 
 Sources can use HTTP, HTTPS or `file://` URLs. An update replaces local edits
 with source content. After a local edit, use `sub use <name>` or `edit --apply`
@@ -301,7 +329,24 @@ go work init . ../unisvc
 Keep `go.mod` free of machine-specific replacements. `GOWORK=off` verifies the
 standalone dependency graph even when a local workspace exists.
 
-Optional OrbStack/systemd integration targets live in `make/orbstack.mk` and
-remain available through `make e2e`, `make e2e-shell` and `make shell`. They use
-`VM` and `VM_BIN` overrides. `make e2e-reset` removes proxyctl state in the test VM.
-The default build and `verify` require neither OrbStack nor Docker.
+Optional OrbStack/systemd integration targets live in `make/orbstack.mk`.
+Supply extracted Linux executables visible inside the VM, with sing-box's
+companion library beside its executable when provided by the release:
+
+```sh
+GOWORK=off make e2e-systemd \
+  MIHOMO_BIN=/path/to/linux/mihomo \
+  SING_BOX_BIN=/path/to/linux/sing-box
+```
+
+The suite uses temporary state, unique user service names, and a local HTTP
+fixture. It covers subscription-free startup, empty-file migration, manual
+configuration preservation, failed-switch rollback, shell cleanup, restart,
+format-specific subscription selection, local upgrade/reinstall, uninstall and
+JSON status. Port 7890 must be free. Test services and temporary files are
+removed on exit; existing proxyctl state is preserved.
+
+`make e2e`, `make e2e-shell` and `make e2e-reset` run this same isolated suite.
+`make e2e-status` reads the VM's normal configuration; `make shell` opens an
+interactive shell. Override `VM` and `VM_BIN` as needed. The default build and
+`verify` require neither OrbStack nor Docker.

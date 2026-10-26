@@ -1,8 +1,8 @@
 ## optimize
 
-> 更新日期：2026-09-12。按用户授权完成实现，新增名称和实现取舍交由最终 review。
-> 详细变更与验证见 [optimize review](docs/optimize-review.md)。feat 保留为后续规划。
-> 内核仍是默认对象，操作位于顶层；订阅使用 sub 分组；on/off 管理当前 shell，start/stop/restart 管理共享服务。
+> 更新日期：2026-10-26。已按当前实现同步多内核、本地安装、Shell 和状态输出的完成情况；本轮无订阅启动与 Linux/systemd 验收结果见文末。
+> 历史优化与验证见 [optimize review](docs/optimize-review.md)。未勾选的 feat 继续保留为后续规划。
+> 内核仍是默认对象，操作位于顶层；订阅使用 sub 分组；on/off 管理当前 shell，start/stop/restart 管理共享服务。`off --stop` 显式同时停止选中的共享服务。
 
 - [x] **O1：添加后的下一步提示。** 没有选中订阅时提示 `sub use <name>` 和 `on`，不自动使用。已有选择或显式 `--use` 时不重复引导。名称安全转义。
 - [x] **O2：保留校验失败文件。** `sub add/update --keep-failed` 将完整但未通过校验的下载保留在配置目录的 `diagnostics/`；目录 0700、文件 0600，输出实际路径且明确未应用。默认清理并提示重试选项；空文件、网络中断、取消不保留。
@@ -17,29 +17,32 @@
 - [x] **O9：订阅移除入口。** 正式名 `sub remove`，别名 rm/delete/del；`--force` 的停止服务和删除已应用配置语义保留。
 - [x] **O10：元数据修改。** `sub modify <name>` 支持 --name/--url/--user-agent/--timeout/--download-via/--insecure/--header/--remove-header。仅保存元数据，不下载、不应用；支持清空 UA、false 和默认超时。同步当前选择引用，缓存使用与名称无关的稳定随机文件名。
 - [x] **O11：ls 别名。** 保留 sub ls、subscription ls 及相关别名测试。
-- [x] **O12：更新范围。** CLI 无参数只更新当前选择，--all 更新全部，与名称参数互斥。没有当前选择则给出明确错误；TUI u 继续更新高亮项。
+- [x] **O12：更新范围。** CLI 无参数只更新当前选择，--all 更新全部兼容当前内核的订阅，与名称参数互斥。没有当前选择则给出明确错误；TUI u 继续更新高亮项。
 - [x] **O13：查看元数据。** `sub show [name]` 默认查看当前选择，展示缓存、超时、路由、UA、TLS 设置和 header 名称。普通输出隐藏来源凭据，--show-url 显式展示完整来源；CLI/TUI 共用 ProfileDetails 展示，后续 JSON 留作 feat。
 - [x] **O14：结果和过程反馈。** 更新逐项返回 updated/unchanged/failed，应用时区分重启与保持停止；应用失败明确缓存留待重试。start/stop 显示 already 状态，服务操作在终端显示进行中提示。CLI/TUI 消费同一应用和更新结果。
 - [x] **O15：动态补全。** use/uninstall/upgrade 补全已安装内核，sub use/update/edit/remove/modify/show 补全已登记名称；只读配置，不加载服务、不下载、不弹交互。
 
 ## bug
 
-- [x] **B1：配置字段不生效。** Headers/UserAgent/SkipCert 已接入实际请求，TLS 设置不污染共享客户端；跨来源重定向不转发自定义 header。未实现的调度字段有非默认值时明确报错。
+- [x] **B1：配置字段不生效。** Headers/UserAgent/SkipCert 已接入实际请求，TLS 设置不污染共享客户端；跨来源重定向不转发自定义 header。未实现的调度字段及未知字段由严格配置解码拒绝。
 - [x] **B2：取消贯通。** CLI context 贯通订阅下载、编辑器、内核校验、geodata 和版本元数据请求；版本探测也有调用方 context 和超时。TUI 忙碌时 Ctrl+C 取消当前操作并等待完成；退出信号经过相同路径，提交/回滚期间不提前释放锁。unisvc 的服务操作接口没有 context，已经进入的服务调用仍同步等其返回，再完成提交/回滚。
-- [x] **B3：内核端点解析不一致。** shell 导出、订阅下载和内核自动代理共用 env.Resolve。修正认证、IPv6、通配地址和端口校验，支持仅 SOCKS 的入站；显式内核路由不会被环境变量覆盖。
+- [x] **B3：内核端点解析不一致。** Shell 导出、订阅下载和内核自动代理共用各内核适配器的 ProxyEndpoints。修正认证、IPv6、通配地址和端口校验，支持仅 SOCKS 的入站；显式内核路由不会被环境变量覆盖。
 - [x] **B4：普通输出泄露 URL 凭据。** list/TUI/on 提示/status/错误使用统一脱敏，隐藏 userinfo、路径、query、fragment。env/on 的可执行 shell 输出仍保留真实值；show --show-url 是明确的查看入口。
 - [x] **B5：跨进程写入丢失。** CLI 写操作与 TUI 单次操作共用 OS 文件锁，从读取到提交/回滚完整串行化；拿锁后重新加载状态。查询、补全和空闲 TUI 不占锁。当前有意将下载/编辑器纳入事务锁，避免引入乐观提交与冲突恢复协议；并发写命令会等待，可取消。
-- [ ] sub 新 add 订阅但未 use 订阅时，执行 on 子命名会报错提示   Read kernel config: open /home/nelvko/.config/proxyctl/mihomo/config.yaml: no such file or directory.
+- [x] **B6：无订阅时可启动。** Mihomo/sing-box 安装时初始化 `127.0.0.1:7890` mixed 入站与直连出站；`start`/`restart`/`on`/内核切换也修复缺失或旧的零字节活动配置，保留已有非空文件。`start` 不要求订阅，`on` 要求可用入站而非订阅选择。`sub add` 仍校验并缓存，但不替换活动配置；`sub use`/`--use` 才应用。`on`/`status` 按内置模板精确匹配标明默认直连，未选订阅不会让手工配置被误标为直连；JSON 增加 `proxy.default_config`（无法读取时为 null）。双内核切换即使无订阅也保留运行态；目标启动失败会恢复原服务与选择。通用检查和真实 Linux/systemd 验收通过。
+
 ## feat
-- [ ] 后期支持 install /use 多个 kernel 时，怎么管理订阅？例如当前 use 的mihomo，且有 2 个对应订阅。若再 install 并 use clash /singbox 后，再执行 sub 时，应该展示 0 个，还是也展示 mihomo 的2个订阅。也需要考虑后期多个内核来回切换时的 sub 的订阅展示情况，不要仅考虑初次 install 并 use 别的内核的情况。
-什么方案比较好？sub add 时指定是哪个内核的？或者直接强隔离？通过--all 来显示全部的？
+- [x] **多内核订阅格式管理。** 已支持 Mihomo/Clash YAML 与 sing-box JSON；添加时按选中内核记录格式，旧的无格式记录按 Clash 处理。`sub list` 显示全部格式，使用/编辑/更新只接受兼容格式，`update --all` 只处理兼容项。每种格式分别记忆订阅选择，跨内核切换不会混用配置。无订阅时的启动和运行态收尾另见 B6。
 - [ ] 目前仅支持 user 域的 systemd unit，是否建议可安装系统级的 unit
 - [ ] i18n 推荐怎么实现？推荐使用哪个依赖库？
-- [ ] sub list 新增 json 等格式化输出的选项
+- [ ] sub list 新增 json 等格式化输出的选项（当前已实现 `status --json`，不代表订阅列表/详情 JSON 已完成）。
 - [ ] 新增个 类似mixin 的功能，可以为单个/所有订阅进行覆写
 - [ ] 定时更新订阅的可行性
-- [ ] install支持三方的魔改 clash 内核
+- [x] **兼容本地第三方内核安装。** `install <name> --bin <path>` 复制已解压的本地可执行文件；`--type mihomo|sing-box` 为兼容分支提供配置校验、启动参数及代理端点适配。基础自定义内核仅提供服务管理；升级重新复制保存的源文件，变更来源通过再次 install 指定。内置在线下载已支持 Mihomo 与 sing-box。
 - [ ] 挖掘 shell hook 可以新增的功能，例：进入某目录时自动开启/关闭代理
+- [x] **安装选择器。** 无参数 `install` 使用单页内核选择器，名称优先，显示配置格式、安装及选中状态；Enter 安装，q/Esc/Ctrl+C 取消。本地安装继续通过 `--bin`/`--type` 指定。
+- [x] **关闭代理并停止服务。** `off --stop` 清理当前 Shell 并停止选中的共享内核；失败仍清理环境并保留错误退出码。bash/zsh/fish 集成识别合法布尔写法并防止将 help 输出作为 Shell 代码执行；普通 `off` 不读取内核配置。
+- [x] **结构化状态。** `status --json` 输出 kernel/service/proxy/shell/profile 五部分，未知状态与空值分开，URL 凭据脱敏，只列环境变量名。服务与订阅局部查询失败记录在相应 error 字段；主配置失败时退出非零且不输出 JSON。
 
 ## Clash Verge 订阅管理对照评估
 
@@ -59,7 +62,7 @@
 | User Agent / Timeout | add/modify 持久设置，update 单次覆盖 | 已统一参数语义 |
 | System Proxy / Clash Proxy | `--download-via env/direct/kernel` | 已统一为互斥路由 |
 | 允许无效证书 | CLI/TUI 已支持 TLS 设置 | `--insecure` 显式启用，默认校验证书 |
-| 更新间隔 / 自动更新 | 有配置字段，当前明确拒绝启用 | 调度必须有独立执行机制，见 CV7 |
+| 更新间隔 / 自动更新 | 尚未实现，配置解码拒绝调度字段 | 调度必须有独立执行机制，见 CV7 |
 | 流量 / 到期 / 更新时间 | 尚无持久化的对应元数据 | 从同次请求响应头提取并缓存展示 |
 | 单项刷新 / 更新全部 | `update [name...]` / `update --all` | 已覆盖；支持单次请求设置 |
 | 全局 / 单订阅覆写 | feat 中已有想法 | 优先实现声明式覆写，见 CV9 |
@@ -75,7 +78,7 @@
 | CV3 默认值及实际展示 | 优化/提示修正 | 已完成；保持默认 10s 和 Go UA，产品 UA 策略暂缓 |
 | CV5 表单恢复、CLI/TUI 操作一致性 | bug/体验优化 | 已完成；含并发修改冲突检查 |
 | CV8 现有 file:// 的关联来源说明 | 提示修正 | 已完成；独立副本模型暂缓 |
-| CV4、CV6～CV12 的新增能力 | feat | 暂缓；包括描述、状态统计、调度、独立副本、覆写、预览、JSON 等 |
+| CV4、CV6～CV12 的新增能力 | feat | 暂缓；包括描述、状态统计、调度、独立副本、覆写、预览、订阅 JSON 等 |
 
 详细实现与验证见 [review 第 7 节](docs/optimize-review.md#7-clash-verge-对照中的优化与-bug2026-09-07)。以下保留评估依据，已完成项的落实说明优先于原拟议方案。
 
@@ -121,7 +124,7 @@
   本轮仅落实提示修正：CLI 帮助、详情和 TUI 明示 file:// 关联原路径，更新会重新读取；HTTP 选项不用于 file 读取。独立副本、路径导入和类型模型仍属于 feat，未实现。
   实机 Local 表单只保留名称、描述和 CHOOSE FILE；官方文档说明导入文件会复制到 profiles，原文件删除不影响副本。当前 `file://` 会保存来源，update 再读取原文件，属于关联来源而非独立副本。[本地导入说明](https://www.clashverge.dev/guide/profile.html)
   建议 `sub add ./config.yaml` / 绝对路径导入独立副本，继续保留 `file://` 表达可再次读取的关联文件，并在帮助、show、TUI 明示两者差别；统一由 add 处理，无需再增语义重叠的 import。独立副本没有远程更新，显式 update 应提示无需更新，--all 跳过并报告 skipped；移动原文件不影响 edit/use。
-  来源类型与内核配置格式分开建模，不把 local/remote 当成 mihomo/sing-box 的替代分类。空白本地配置涉及草稿与可应用状态，暂缓支持；不让空文件通过现有校验。若未来产品核心扩展为通用配置管理，再一并评估 sub 是否应升级为 profile，目前不只为对齐 GUI 标题更名。
+  来源类型与内核配置格式分开建模，不把 local/remote 当成 mihomo/sing-box 的替代分类。订阅导入中的空白本地配置涉及草稿与可应用状态，暂缓支持；安装阶段初始化内核活动配置不改变订阅下载的非空与合法性校验。若未来产品核心扩展为通用配置管理，再一并评估 sub 是否应升级为 profile，目前不只为对齐 GUI 标题更名。
 
 - [ ] **CV9 · P1：优先落实原 feat 的覆写，解决更新覆盖本地编辑。**
   当前 edit 的本地更改会被 update 替换。借鉴全局与单订阅扩展，先做声明式 YAML 覆写：来源内容 → 当前格式的全局覆写 → 单订阅覆写 → 最终校验 → 应用；原始下载与覆写分别保存，更新不破坏用户规则。全局覆写应按配置格式限定适用范围，避免未来把 Mihomo 字段合并进 sing-box 配置。[扩展机制文档](https://www.clashverge.dev/guide/extend.html)
@@ -140,7 +143,7 @@
   可增加 `sub add --url-stdin` 读取单个 URL，避免用户必须把订阅凭据写进 shell 历史；与位置参数互斥，明确不是从 stdin 导入配置正文。桌面剪贴板按钮无需单独转化为 CLI 子命令。
   可在同一 add 解析器接收 `clash://install-config?url=...`，仅解码一次并校验内部来源，不因此注册系统 URL 协议或自动 use。主页链接先在详情中展示，仅接受 HTTP(S)，不因接收到响应头而打开浏览器。二维码分享、文件管理器跳转、拖拽排序、脚本控制台和完整图形化规则编辑暂缓，它们不是当前 CLI 的优先缺口。
 
-后续 feat 建议顺序：CV6 状态记录、CV8/CV9 来源与覆写边界，再做 CV10；CV4/CV11 可独立推进，CV7 依赖请求策略和状态记录，CV12 按真实需求选做。原 feat 的多内核、覆写、定时更新、JSON 条目继续保留，以上对应项是细化方案，不算重复完成。
+后续 feat 建议顺序：CV6 状态记录、CV8/CV9 来源与覆写边界，再做 CV10；CV4/CV11 可独立推进，CV7 依赖请求策略和状态记录，CV12 按真实需求选做。多内核格式管理已经完成；覆写、定时更新及订阅 JSON 条目继续保留，以上对应项是细化方案，不算重复完成。
 
 
 ## structure
@@ -168,4 +171,9 @@
 
 - [x] **S13：职责、配置模型与文件命名复核（2026-09-17）。** 内核启动参数归适配器，开启代理及删除订阅装配归 app；TUI 元数据操作不再依赖内核。Transaction 改 WithStateLock，选中状态统一 Selected，订阅 Use/Update 入口收敛。下载模型改 DownloadConfig/download，移除未实现调度字段并严格拒绝未知字段；大文件及历史批次测试按职责拆分。详见架构调整记录本轮实施章节。
 
-目前的sub的逻辑改了吗：add订阅时不校验合法性，仅use时才校验
+## 本轮验收（2026-10-26）
+
+- [x] 无订阅启动回归：默认配置、旧零字节配置修复、已有非空配置保留、添加但不应用订阅、无订阅跨内核切换及错误/回滚路径。`GOWORK=off make verify` 通过，覆盖 vet、Go 测试、隔离 CLI smoke 与 Linux 交叉构建。
+- [x] Linux/systemd 实机：OrbStack 的 Debian bookworm arm64，Mihomo v1.19.33 与 sing-box v1.14.4，通过 `--bin`/`--type` 和唯一别名安装。覆盖无订阅 start/on、普通 off 保持服务、off --stop 清理 bash 环境并停服务、真实 restart、默认直连请求本地 HTTP fixture、空文件迁移、手工无入站配置、错误目标保护、启动失败回滚、双内核格式隔离和选择恢复、JSON 状态、本地升级、重新安装及卸载。新增 `make e2e-systemd`，结果为 `SYSTEMD_E2E_GREEN`；测试临时服务、链接和文件已清理，原有配置保留。
+
+E2E 使用已解压的本地 Linux 内核，在线下载与跨版本升级不属于这组验收。`sub add` 和 `sub use` 当前都会进行内核配置校验；本轮保持“添加不应用”的职责，未改成仅在 use 时校验。
