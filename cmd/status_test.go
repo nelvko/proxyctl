@@ -215,3 +215,64 @@ func TestStatusDefaultOutputRemainsHumanReadable(t *testing.T) {
 		t.Fatalf("default status changed: output=%q, stderr=%q, error=%v", output, stderr, err)
 	}
 }
+
+func TestStatusReportsDefaultConfigWithoutInitializingIt(t *testing.T) {
+	for _, kind := range []string{"mihomo", "sing-box"} {
+		t.Run(kind, func(t *testing.T) {
+			isolatedStatusConfig(t)
+			cfg, err := config.DefaultKernelConfig("status-default")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Type = kind
+			if err := config.Save(&config.Config{Use: cfg.Name, Kernels: []config.KernelConfig{cfg}}); err != nil {
+				t.Fatal(err)
+			}
+			output, _, err := runCommand("status", "--json")
+			if err != nil || decodeStatus(t, output).Proxy.DefaultConfig != nil {
+				t.Fatalf("missing config reported a known state: %s, %v", output, err)
+			}
+			if _, err := os.Stat(cfg.ConfigFile); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("status initialized the config: %v", err)
+			}
+			k, err := kernel.New(&cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := kernel.EnsureDefaultConfig(k); err != nil {
+				t.Fatal(err)
+			}
+			output, _, err = runCommand("status", "--json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := decodeStatus(t, output)
+			if result.Proxy.DefaultConfig == nil || !*result.Proxy.DefaultConfig || result.Proxy.State != "available" || result.Profile.State != "none" {
+				t.Fatalf("default config status: %s", output)
+			}
+			output, _, err = runCommand("status")
+			if err != nil || !strings.Contains(output, "config:    default (direct)\n") {
+				t.Fatalf("default mode missing: %q, %v", output, err)
+			}
+			if err := os.WriteFile(cfg.ConfigFile, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, _, err = runCommand("status", "--json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result = decodeStatus(t, output)
+			if result.Proxy.DefaultConfig == nil || *result.Proxy.DefaultConfig {
+				t.Fatalf("manual config mistaken for default: %s", output)
+			}
+			output, _, err = runCommand("on")
+			if err == nil || output != "" || !strings.Contains(err.Error(), "no usable") {
+				t.Fatalf("on without inbound: output=%q error=%v", output, err)
+			}
+			data, err := os.ReadFile(cfg.ConfigFile)
+			if err != nil || string(data) != "{}\n" {
+				t.Fatalf("on replaced manual configuration: %q, %v", data, err)
+			}
+		})
+	}
+}

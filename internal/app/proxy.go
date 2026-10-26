@@ -14,8 +14,14 @@ import (
 // StartProxy starts the selected service and waits for a usable proxy endpoint.
 // The caller owns the state lock; shell formatting belongs to the command.
 func (a *App) StartProxy(ctx context.Context) (kernel.Endpoints, error) {
+	if err := ctx.Err(); err != nil {
+		return kernel.Endpoints{}, err
+	}
 	k, err := a.Kernel()
 	if err != nil {
+		return kernel.Endpoints{}, err
+	}
+	if err := kernel.EnsureDefaultConfig(k); err != nil {
 		return kernel.Endpoints{}, err
 	}
 	endpoints, err := k.ProxyEndpoints()

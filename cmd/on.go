@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/nelvko/proxyctl/internal/env"
+	"github.com/nelvko/proxyctl/internal/kernel"
 	"github.com/nelvko/proxyctl/internal/redact"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +17,9 @@ func newOnCmd() *cobra.Command {
 Starts the kernel service if needed, then prints shell statements
 that apply the proxy environment to stdout. With the shell
 integration (eval "$(proxyctl init bash)"), they apply to the
-current shell; the kernel config decides the actual address.`,
+current shell; the kernel config decides the actual address.
+A subscription is optional. The initial configuration uses a local mixed
+proxy with direct outbound connections.`,
 		Args: cobra.NoArgs,
 		RunE: mutation(func(cmd *cobra.Command, args []string) error {
 			if err := requireShellIntegration(cmd.Name()); err != nil {
@@ -35,7 +36,13 @@ current shell; the kernel config decides the actual address.`,
 			e := env.ForProxy(endpoints.HTTP, endpoints.SOCKS)
 
 			printShell(cmd, e.Export(env.Shell()))
-			cmd.PrintErrln(fmt.Sprintf("proxy on: %s", redact.URL(firstNonEmpty(e.HTTP, e.All))))
+			note := ""
+			if k, err := a.Kernel(); err == nil {
+				if initial, err := kernel.IsDefaultConfig(k); err == nil && initial {
+					note = " (direct; default configuration)"
+				}
+			}
+			cmd.PrintErrf("proxy on: %s%s\n", redact.URL(firstNonEmpty(e.HTTP, e.All)), note)
 			return nil
 		}),
 	}

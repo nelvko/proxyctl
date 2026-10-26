@@ -45,17 +45,16 @@ func (a *App) InstallKernel(ctx context.Context, name string, options ...config.
 		return fmt.Errorf("service management is not available on %s (systemd only for now)", is)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if kcfg.Type != "custom" {
 		if err := os.MkdirAll(kcfg.ConfigDir, 0o755); err != nil {
 			return err
 		}
-		if _, err := os.Stat(kcfg.ConfigFile); errors.Is(err, os.ErrNotExist) {
-			f, err := os.Create(kcfg.ConfigFile)
-			if err != nil {
-				return err
-			}
-			f.Close()
-		}
+	}
+	if err := kernel.EnsureDefaultConfig(k); err != nil {
+		return err
 	}
 	if kcfg.Source != "" {
 		if err := kernel.InstallLocal(ctx, kcfg.Source, kcfg.Bin, kcfg.Type == "sing-box"); err != nil {
@@ -140,6 +139,15 @@ func (a *App) UseKernel(ctx context.Context, name string) error {
 			restoreSelection()
 			return err
 		}
+	} else {
+		if err := kernel.EnsureDefaultConfig(next); err != nil {
+			restoreSelection()
+			return err
+		}
+		if err := next.TestConfig(ctx, next.ConfigFile()); err != nil && !errors.Is(err, kernel.ErrNoValidation) {
+			restoreSelection()
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		restoreSelection()
@@ -183,7 +191,7 @@ func (a *App) UseKernel(ctx context.Context, name string) error {
 			return rollback(err)
 		}
 	}
-	if wasRunning && profileErr == nil {
+	if wasRunning {
 		if err := next.Start(); err != nil {
 			return rollback(err)
 		}

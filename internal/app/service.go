@@ -32,11 +32,17 @@ func controlKernel(ctx context.Context, k kernel.Kernel, action string) error {
 		if err != nil || on {
 			return err
 		}
+		if err := kernel.EnsureDefaultConfig(k); err != nil {
+			return err
+		}
 		if err := k.TestConfig(ctx, k.ConfigFile()); err != nil && !errors.Is(err, kernel.ErrNoValidation) {
 			return err
 		}
 		return k.Start()
 	case "restart":
+		if err := kernel.EnsureDefaultConfig(k); err != nil {
+			return err
+		}
 		if err := k.TestConfig(ctx, k.ConfigFile()); err != nil && !errors.Is(err, kernel.ErrNoValidation) {
 			return err
 		}

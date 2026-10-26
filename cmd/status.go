@@ -58,6 +58,9 @@ func newStatusCmd() *cobra.Command {
 					} else {
 						cmd.Println("proxy:     -")
 					}
+					if initial, err := kernel.IsDefaultConfig(k); err == nil && initial {
+						cmd.Println("config:    default (direct)")
+					}
 				} else {
 					cmd.Println("proxy:     -")
 				}
@@ -114,10 +117,11 @@ type statusServiceJSON struct {
 }
 
 type statusProxyJSON struct {
-	State string  `json:"state"`
-	HTTP  *string `json:"http"`
-	SOCKS *string `json:"socks"`
-	Error *string `json:"error"`
+	State         string  `json:"state"`
+	HTTP          *string `json:"http"`
+	SOCKS         *string `json:"socks"`
+	Error         *string `json:"error"`
+	DefaultConfig *bool   `json:"default_config"`
 }
 
 func readStatusJSON(a *app.App) statusJSON {
@@ -130,6 +134,11 @@ func readStatusJSON(a *app.App) statusJSON {
 		result.Kernel.Name = statusText(cfg.Name)
 		k, err := a.Kernel()
 		result.Service, result.Proxy = readStatusRuntime(k, err)
+		if err == nil {
+			if initial, err := kernel.IsDefaultConfig(k); err == nil {
+				result.Proxy.DefaultConfig = &initial
+			}
+		}
 	}
 	result.Shell.ProxyVariables = []string{}
 	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"} {

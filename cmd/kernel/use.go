@@ -10,9 +10,9 @@ func newUseCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "use [name]", Short: "Select an installed kernel",
 		Long: `Select an installed kernel; without a name, choose interactively.
-Apply a selected subscription of the target kernel's format. If the previous
-kernel was running and the target has a subscription, move the running session;
-otherwise keep the target service stopped.
+Apply a selected subscription of the target kernel's format, if any.
+Without a subscription, use the target's existing or default direct configuration.
+A running session moves to the target; a stopped session stays stopped.
 Shell environment variables are unchanged.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
@@ -49,7 +49,7 @@ Shell environment variables are unchanged.`,
 				return err
 			}
 			if a.Subscriptions.Use == "" {
-				cmd.Printf("kernel %q selected; no subscription selected (run proxyctl sub use <name> or sub add <url> --use)\n", name)
+				cmd.Printf("kernel %q selected; using its configuration without a subscription\n", name)
 			} else {
 				cmd.Printf("kernel %q selected\n", name)
 			}

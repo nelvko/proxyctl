@@ -22,7 +22,9 @@ format and installation status. For a local binary, provide a name and --bin.
 is compatible.
 
 The local executable must already be extracted and is copied into proxyctl's
-managed directory.`,
+managed directory. Mihomo and sing-box start with a local mixed proxy on
+127.0.0.1:7890 and direct outbound connections; subscriptions are optional.
+Existing nonempty configurations are preserved.`,
 		Args:      cobra.MaximumNArgs(1),
 		ValidArgs: pkernel.ImplementedNames(),
 		RunE: mutation(func(cmd *cobra.Command, args []string) error {
@@ -88,6 +90,11 @@ managed directory.`,
 				return err
 			}
 			cmd.Printf("kernel %q installed\n", name)
+			if k, err := pkernel.New(a.Config.KernelByName(name)); err == nil {
+				if initial, err := pkernel.IsDefaultConfig(k); err == nil && initial {
+					cmd.Println("configuration: default (direct); subscription optional")
+				}
+			}
 			return nil
 		}),
 	}

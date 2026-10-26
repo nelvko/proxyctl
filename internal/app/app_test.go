@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -85,14 +86,57 @@ func TestUseKernelKeepsSelectionsByFormat(t *testing.T) {
 	if a.Subscriptions.Use != "" || a.Subscriptions.UseByFormat["clash"] != "one" {
 		t.Fatalf("selection = %+v", a.Subscriptions)
 	}
-	if old.running || next.running {
-		t.Fatal("started sing-box with a Clash profile")
+	if old.running || !next.running {
+		t.Fatal("switch to a default configuration lost the running session")
+	}
+	if initial, err := kernel.IsDefaultConfig(next); err != nil || !initial {
+		t.Fatalf("sing-box did not receive its own default config: %t, %v", initial, err)
 	}
 	if err := a.UseKernel(context.Background(), "mihomo"); err != nil {
 		t.Fatal(err)
 	}
 	if a.Subscriptions.Use != "one" {
 		t.Fatalf("Clash selection not restored: %q", a.Subscriptions.Use)
+	}
+}
+
+func TestUseKernelWithoutSubscriptions(t *testing.T) {
+	for _, running := range []bool{false, true} {
+		t.Run(fmt.Sprint(running), func(t *testing.T) {
+			a, old, next := switchingApp(t, running)
+			a.Subscriptions = &config.SubscriptionConfig{}
+			if err := a.UseKernel(t.Context(), "clash"); err != nil {
+				t.Fatal(err)
+			}
+			if old.running || next.running != running || a.Subscriptions.Use != "" {
+				t.Fatalf("unexpected switch: old=%t next=%t profile=%q", old.running, next.running, a.Subscriptions.Use)
+			}
+			if err := a.UseKernel(t.Context(), "mihomo"); err != nil {
+				t.Fatal(err)
+			}
+			if next.running || old.running != running || a.Subscriptions.Use != "" {
+				t.Fatal("switch back changed running state or selected a subscription")
+			}
+		})
+	}
+}
+
+func TestUseKernelWithoutSubscriptionValidatesBeforeStopping(t *testing.T) {
+	a, old, next := switchingApp(t, true)
+	a.Subscriptions = &config.SubscriptionConfig{}
+	next.validationErr = errors.New("invalid manual target configuration")
+	if err := os.WriteFile(next.file, []byte("invalid: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.UseKernel(t.Context(), "clash"); !errors.Is(err, next.validationErr) {
+		t.Fatalf("expected validation failure, got %v", err)
+	}
+	if old.stops != 0 || !old.running || next.running || a.Config.Use != "mihomo" {
+		t.Fatal("invalid manual target changed the active kernel")
+	}
+	data, err := os.ReadFile(next.file)
+	if err != nil || string(data) != "invalid: [" {
+		t.Fatalf("invalid user configuration was replaced: %q, %v", data, err)
 	}
 }
 
@@ -135,13 +179,20 @@ func TestUseKernelPropagatesStopFailure(t *testing.T) {
 }
 
 func TestUseKernelRestoresPreviousServiceOnStartFailure(t *testing.T) {
-	a, old, next := switchingApp(t, true)
-	next.startErr = errors.New("start failed")
-	if err := a.UseKernel(context.Background(), "clash"); !errors.Is(err, next.startErr) {
-		t.Fatalf("got %v", err)
-	}
-	if a.Config.Use != "mihomo" || !old.running || next.running {
-		t.Fatal("previous running state was not restored")
+	for _, withProfile := range []bool{false, true} {
+		t.Run(fmt.Sprint(withProfile), func(t *testing.T) {
+			a, old, next := switchingApp(t, true)
+			if !withProfile {
+				a.Subscriptions = &config.SubscriptionConfig{}
+			}
+			next.startErr = errors.New("start failed")
+			if err := a.UseKernel(context.Background(), "clash"); !errors.Is(err, next.startErr) {
+				t.Fatalf("got %v", err)
+			}
+			if a.Config.Use != "mihomo" || !old.running || next.running {
+				t.Fatal("previous running state was not restored")
+			}
+		})
 	}
 }
 
