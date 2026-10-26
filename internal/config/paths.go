@@ -82,7 +82,7 @@ func DefaultKernelConfig(name string) (KernelConfig, error) {
 		return KernelConfig{}, fmt.Errorf("invalid kernel name %q", name)
 	}
 	switch name {
-	case "profiles", "diagnostics", "kernels":
+	case "profiles", "diagnostics", "kernels", "overrides":
 		return KernelConfig{}, fmt.Errorf("reserved kernel name %q", name)
 	}
 	root, err := dir()

@@ -135,7 +135,7 @@ func (a *App) UseKernel(ctx context.Context, name string) error {
 		return profileErr
 	}
 	if profileErr == nil {
-		if err := next.TestConfig(ctx, profile.File); err != nil {
+		if err := svc.Validate(profile.Name); err != nil {
 			restoreSelection()
 			return err
 		}

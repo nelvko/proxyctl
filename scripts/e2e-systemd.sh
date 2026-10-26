@@ -293,11 +293,69 @@ assert_status "$mihomo" running clash-profile 2 false
 assert_proxy
 echo "PASS format isolation and per-format subscription selection restored"
 
+cat > "$scratch/bin/override-editor" <<'SH'
+#!/usr/bin/env bash
+cp -- "${PROXYCTL_E2E_PATCH:?}" "$1"
+SH
+chmod +x "$scratch/bin/override-editor"
+for name in "$mihomo" "$singbox"; do
+    proxyctl use "$name"
+    config_file="$mihomo_config"
+    profile=clash-profile
+    raw_files=("$sandbox_config/proxyctl/profiles/"*.yaml)
+    printf 'mixed-port: 7891\nlog-level: error\n' > "$scratch/global-patch"
+    printf 'mixed-port: 7890\n' > "$scratch/profile-patch"
+    printf 'mode: invalid-mode\n' > "$scratch/invalid-patch"
+    if [[ $name == "$singbox" ]]; then
+        config_file="$singbox_config"
+        profile=sing-profile
+        raw_files=("$sandbox_config/proxyctl/profiles/"*.json)
+        printf '{"log":{"level":"error"},"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":7891}]}\n' > "$scratch/global-patch"
+        printf '{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":7890}]}\n' > "$scratch/profile-patch"
+        printf '{"outbounds":[{"type":"invalid-type"}]}\n' > "$scratch/invalid-patch"
+    fi
+    [[ ${#raw_files[@]} == 1 ]]
+    cp -- "${raw_files[0]}" "$scratch/original-source"
+    cp -- "$config_file" "$scratch/active-before-override"
+    before_override=$(pid_of "$name")
+    export PROXYCTL_E2E_PATCH="$scratch/global-patch"
+    proxyctl sub override edit --global --editor "$scratch/bin/override-editor"
+    proxyctl sub override show --global > "$scratch/shown-patch"
+    cmp -- "$scratch/global-patch" "$scratch/shown-patch"
+    export PROXYCTL_E2E_PATCH="$scratch/profile-patch"
+    proxyctl sub override edit "$profile" --editor "$scratch/bin/override-editor"
+    cmp -- "$config_file" "$scratch/active-before-override"
+    [[ $(pid_of "$name") == "$before_override" ]]
+    export PROXYCTL_E2E_PATCH="$scratch/invalid-patch"
+    if proxyctl sub override edit "$profile" --editor "$scratch/bin/override-editor" > "$scratch/invalid-override.log" 2>&1; then
+        echo "an invalid effective override was saved" >&2
+        exit 1
+    fi
+    proxyctl sub override show "$profile" > "$scratch/shown-patch"
+    cmp -- "$scratch/profile-patch" "$scratch/shown-patch"
+    proxyctl sub use "$profile"
+    assert_status "$name" running "$profile" 2 false
+    assert_proxy
+    cmp -- "${raw_files[0]}" "$scratch/original-source"
+    before_update=$(pid_of "$name")
+    proxyctl sub update "$profile"
+    [[ $(pid_of "$name") == "$before_update" ]]
+    cp -- "$config_file" "$scratch/active-before-clear"
+    proxyctl sub override clear --global
+    proxyctl sub override clear "$profile"
+    cmp -- "$config_file" "$scratch/active-before-clear"
+    [[ $(pid_of "$name") == "$before_update" ]]
+    proxyctl sub use "$profile"
+    assert_proxy
+done
+unset PROXYCTL_E2E_PATCH
+echo "PASS YAML/JSON overrides: precedence, staged edits, invalid rejection, raw preservation and unchanged update"
+
 proxyctl off --stop
 assert_shell_clear
 assert_stopped "$mihomo"
 assert_stopped "$singbox"
-assert_status "$mihomo" stopped clash-profile 2 false
+assert_status "$singbox" stopped sing-profile 2 false
 
 # Local upgrades and reinstalls preserve user config and restart running units.
 for name in "$mihomo" "$singbox"; do

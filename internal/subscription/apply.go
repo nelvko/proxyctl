@@ -22,13 +22,8 @@ func (s *Service) Use(profileName string) (ApplicationState, error) {
 		return "", err
 	}
 
-	useFile := s.subConfig.Profiles[i].File
 	kernelCfg := s.kernel.ConfigFile()
-	if err := s.kernel.TestConfig(s.ctx, useFile); err != nil {
-		return "", err
-	}
-
-	newBytes, err := os.ReadFile(useFile)
+	newBytes, err := s.validatedConfig(s.subConfig.Profiles[i], s.subConfig.Profiles[i].File, nil)
 	if err != nil {
 		return "", err
 	}

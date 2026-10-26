@@ -134,12 +134,15 @@ built-in direct template, `false` for another readable configuration, and
 | `sub add <url> --use` | Also select and apply the added profile, preserving service running state. |
 | `sub use [name]` | Select and apply a profile. Restart a running kernel; stage the configuration when stopped. |
 | `sub update [name...]` | Fetch named profiles from their sources, or the selected profile when no names are supplied. Use `--all` to update every profile compatible with the selected kernel; names and `--all` are mutually exclusive. Apply changes to the selected profile without starting a stopped service. |
-| `sub edit [name]` | Edit a temporary copy using `$EDITOR` or `--editor`. Validate before replacing the local profile. Does not apply the edit. |
+| `sub edit [name]` | Edit a temporary copy of the source cache using `$EDITOR` or `--editor`. Validate the effective configuration before saving. Does not apply the edit; a later update replaces these source edits. |
 | `sub edit [name] --apply` | Also select and apply the edited profile, preserving service running state. |
-| `sub remove [name]` | Remove an unselected profile and its cached file, preserving the remote or file URL source. |
+| `sub remove [name]` | Remove an unselected profile, its cached file and its override, preserving the remote or file URL source. |
 | `sub remove [name] --force` | Permit removing the selected profile; stop the selected kernel and remove its applied configuration too. |
 | `sub modify <name>` | Change source, name or download settings without downloading or applying. Without flags, opens a form in a terminal. |
 | `sub show [name]` | Inspect metadata; defaults to the selected profile. Source credentials are hidden unless `--show-url` is supplied. |
+| `sub override edit <name>` / `sub override edit --global` | Edit and validate a profile override or the selected format's global override. Save without applying. Supports `--editor` / `-e`. |
+| `sub override show <name>` / `sub override show --global` | Print the saved override, including raw configuration values. |
+| `sub override clear <name>` / `sub override clear --global` | Validate the remaining configuration, then remove the override without applying. |
 
 For `use`, `edit` and `remove`, omitting the name prompts for the target of
 that operation. Scripts must supply a name. The general manager is opened
@@ -154,10 +157,88 @@ existing or minimal direct configuration and preserves the running/stopped
 state. Adding a profile alone does not replace that configuration; use
 `sub use <name>` or `sub add ... --use` to select and apply it.
 
-Sources can use HTTP, HTTPS or `file://` URLs. An update replaces local edits
-with source content. After a local edit, use `sub use <name>` or `edit --apply`
-to apply it. Failed applications are retried by `sub update` even when the
-source content is unchanged.
+Sources can use HTTP, HTTPS or `file://` URLs. An update replaces edits made by
+`sub edit` with source content, but preserves separately saved overrides. After
+a source edit, use `sub use <name>` or `edit --apply` to apply it. Failed
+applications are retried by `sub update` even when the source content is
+unchanged.
+
+### Configuration overrides
+
+Use overrides for changes that should survive subscription updates. The
+effective configuration is built in this order:
+
+```text
+source cache → global override for its format → profile override → kernel validation
+```
+
+Clash profiles use YAML; sing-box profiles use strict JSON. Objects merge
+recursively, arrays replace the entire previous array, and scalar values replace
+previous values. `null` is a literal replacement, not a deletion instruction.
+An empty object `{}` makes no changes. When merging, the source and each override
+must be a single object; duplicate keys and extra documents are rejected. JSON
+comments and trailing commas are not supported. There are no script or field
+deletion operators.
+
+Every override command requires either a profile name or `--global`, exclusively.
+There is no implicit current-profile or global target. `--global` applies only
+to the selected kernel's configuration format, so Mihomo and sing-box keep
+separate global overrides. Editing or clearing requires a compatible selected
+kernel. Showing a named profile's override needs no kernel; showing the global
+override needs a selected adapter to determine its format.
+
+```sh
+proxyctl sub override edit work --editor vim
+proxyctl sub override show work
+proxyctl sub use work
+
+# Edit the global override for the currently selected format:
+proxyctl sub override edit --global -e vim
+proxyctl sub use work
+
+# Remove this profile's override, then apply the remaining layers:
+proxyctl sub override clear work
+proxyctl sub use work
+```
+
+For a Clash profile, an override can contain:
+
+```yaml
+mixed-port: 7891
+log-level: warning
+```
+
+For a sing-box profile, an override can contain:
+
+```json
+{"log": {"level": "warn"}}
+```
+
+The editor defaults to `$EDITOR` when `--editor` is omitted. Saving or clearing
+an override validates the resulting configuration but leaves the active file
+and service unchanged. Use `sub use <name>` to apply it. A global change is
+checked against every cached profile of that format; any failure preserves the
+previous override. When saving a global override with no matching profiles,
+only syntax can be checked, and the command reports this limitation. Clearing
+a required override can fail if the remaining configuration would be invalid.
+
+Adding, editing, updating, applying and switching to a profile all validate its
+effective configuration. Downloads remain in the original source cache. An
+update saves changed source content but does not restart a service when the
+effective content is unchanged. Updating a selected profile also applies changed
+overrides even when the source download is identical. A stopped service remains
+stopped. If the applied proxy address changes, run `proxyctl on` again.
+
+Global overrides live at `overrides/clash.yaml` and `overrides/sing-box.json`
+under the proxyctl configuration directory. Profile overrides are stored beside
+their stable cache file as `<cache-file>.override.yaml` or
+`<cache-file>.override.json`. Renaming a profile preserves its override; deleting
+the profile removes it. Saved overrides use file mode 0600. The shared
+`overrides` directory is reserved and protected from kernel uninstallation.
+`sub override show` prints the saved patch, not the merged
+configuration, and explicitly exposes its raw values, which may include
+credentials. Ordinary `sub show` metadata output continues to hide source
+credentials.
 
 ### Names, downloads and diagnostics
 
@@ -199,13 +280,16 @@ isolated; custom headers are stripped on redirects to a different origin.
 Normal inspection displays header names, not their values.
 
 `file://` is a linked local source: its contents are copied into the cache,
-and each update reads the original path again, replacing local edits. It is
-not an independent import; HTTP settings do not apply to file reads.
+and each update reads the original path again, replacing source-cache edits
+while keeping overrides. It is not an independent import; HTTP settings do not
+apply to file reads.
 
-`sub add` and `sub update` accept `--keep-failed`. Complete downloads rejected
-by the kernel are saved under the application's `diagnostics/` directory
+`sub add` and `sub update` accept `--keep-failed`. Complete downloads whose
+effective configuration fails validation are saved under the application's
+`diagnostics/` directory
 (directory mode 0700, file mode 0600). The error prints the actual path; these
-files are not registered or applied. Remove them after inspection. Without
+files contain the original downloaded content, not the merged configuration,
+and are not registered or applied. Remove them after inspection. Without
 the flag, failed downloads are cleaned up and validation errors explain how
 to retain them. Empty, interrupted and cancelled downloads are not retained.
 
@@ -259,7 +343,7 @@ Dynamic completion reads saved names without starting services or downloads.
 | `cmd/sub` | The subscription command group, its request flags, completion and interactive target selection; registered through `sub.NewCommand()`. |
 | `internal/app` | Runtime assembly, mutation locking and workflows spanning kernels and subscriptions. |
 | `internal/config` | Persisted models, shared paths, atomic writes and state locking. |
-| `internal/subscription` | Subscription source settings, validation, cached content and application. |
+| `internal/subscription` | Subscription source settings, source caches, configuration overrides, effective validation and application. |
 | `internal/kernel` | Kernel adapters, release metadata, binary installation/extraction and service integration. |
 | `internal/download` | Remote content retrieval shared by add, update, install and upgrade: transport, retries, timeouts, mirrors and progress. |
 | `internal/redact` | Sensitive URL/error redaction and control-character filtering, independent of presentation. |
@@ -343,7 +427,10 @@ The suite uses temporary state, unique user service names, and a local HTTP
 fixture. It covers subscription-free startup, empty-file migration, manual
 configuration preservation, failed-switch rollback, shell cleanup, restart,
 format-specific subscription selection, local upgrade/reinstall, uninstall and
-JSON status. Port 7890 must be free. Test services and temporary files are
+JSON status. Both formats also exercise global/profile override precedence,
+staged edits and clearing, rejected invalid patches, raw-content display and
+cache preservation, and updates without restarting an unchanged effective
+configuration. Port 7890 must be free. Test services and temporary files are
 removed on exit; existing proxyctl state is preserved.
 
 `make e2e`, `make e2e-shell` and `make e2e-reset` run this same isolated suite.

@@ -52,10 +52,17 @@ func (s *Service) Update(options DownloadOptions, names ...string) ([]UpdateResu
 		if changed {
 			result.Status = Updated
 		}
-		if err == nil && s.SelectedName() == p.Name && (changed || contentChanged(p.File, s.kernel.ConfigFile())) {
-			result.Application, err = s.Use(p.Name)
-			if err != nil {
-				result.Application = ApplicationFailed
+		if err == nil && s.SelectedName() == p.Name {
+			var raw, effective []byte
+			raw, err = os.ReadFile(p.File)
+			if err == nil {
+				effective, err = s.renderConfig(p, raw, nil)
+			}
+			if err == nil && contentDiffers(effective, s.kernel.ConfigFile()) {
+				result.Application, err = s.Use(p.Name)
+				if err != nil {
+					result.Application = ApplicationFailed
+				}
 			}
 		}
 		if err != nil {
@@ -116,7 +123,7 @@ func (s *Service) updateProfile(p profile) (bool, error) {
 	if _, err := s.fetchSource(u, tmpFile, p); err != nil {
 		return false, err
 	}
-	if err := s.validateDownload(tmpName); err != nil {
+	if err := s.validateDownload(p, tmpName); err != nil {
 		return false, err
 	}
 	if err := s.ctx.Err(); err != nil {
@@ -142,6 +149,10 @@ func contentChanged(tmp, cur string) bool {
 	if err != nil {
 		return true
 	}
+	return contentDiffers(fresh, cur)
+}
+
+func contentDiffers(fresh []byte, cur string) bool {
 	current, err := os.ReadFile(cur)
 	if err != nil {
 		return true

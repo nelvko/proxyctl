@@ -64,7 +64,7 @@ func (s *Service) Add(draft *profile) error {
 		draft.Name = s.availableName(suggested)
 	}
 
-	if err := s.validateDownload(tmpName); err != nil {
+	if err := s.validateDownload(*draft, tmpName); err != nil {
 		return err
 	}
 	if err := s.ctx.Err(); err != nil {

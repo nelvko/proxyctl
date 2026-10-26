@@ -32,6 +32,25 @@ func Edit(ctx context.Context, svc *subscription.Service, name, editor string, s
 	return session.Commit()
 }
 
+// EditOverride stages an override, then validates and commits it after editing.
+// The caller owns the state lock and terminal suspension (if any).
+func EditOverride(ctx context.Context, svc *subscription.Service, name string, global bool, editor string, stdin io.Reader, stdout, stderr io.Writer) error {
+	session, err := svc.BeginOverrideEdit(name, global)
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	cmd, err := editorCommand(ctx, session.Path(), editor)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return session.Commit()
+}
+
 func editorCommand(ctx context.Context, file, editor string) (*exec.Cmd, error) {
 	editorList := []string{os.Getenv("EDITOR"), "nvim", "vim", "vi", "nano", "code", "notepad"}
 	if editor != "" {

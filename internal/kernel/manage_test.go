@@ -17,7 +17,8 @@ func TestRemovalOwnership(t *testing.T) {
 	}
 	root, _ := config.ConfigDir()
 	profiles := filepath.Join(root, "profiles")
-	for _, dir := range []string{cfg.ConfigDir, filepath.Dir(cfg.Bin), profiles} {
+	overrides := filepath.Join(root, "overrides")
+	for _, dir := range []string{cfg.ConfigDir, filepath.Dir(cfg.Bin), profiles, overrides} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -25,7 +26,7 @@ func TestRemovalOwnership(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, path := range []string{root, profiles, filepath.Join(root, "clash")} {
+	for _, path := range []string{root, profiles, overrides, filepath.Join(root, "clash")} {
 		bad := cfg
 		bad.ConfigDir = path
 		if err := RemoveKernelFiles(bad); err == nil {
@@ -35,11 +36,19 @@ func TestRemovalOwnership(t *testing.T) {
 			t.Fatalf("partially deleted before validation: %v", err)
 		}
 	}
+	reserved := cfg
+	reserved.Name, reserved.ConfigDir = "overrides", overrides
+	if err := ValidateRemoval(reserved); err == nil {
+		t.Fatal("accepted a kernel claiming the shared override directory")
+	}
 	if err := RemoveKernelFiles(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(profiles, "keep")); err != nil {
 		t.Fatal("deleted subscriptions", err)
+	}
+	if _, err := os.Stat(filepath.Join(overrides, "keep")); err != nil {
+		t.Fatal("deleted global overrides", err)
 	}
 	if _, err := os.Stat(cfg.ConfigDir); !os.IsNotExist(err) {
 		t.Fatal("kernel directory remains", err)

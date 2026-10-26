@@ -8,6 +8,8 @@ export HOME="$scratch/home" XDG_CONFIG_HOME="$scratch/config" AppData="$scratch/
 mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 "$bin" --help >/dev/null
 "$bin" sub --help >/dev/null
+"$bin" sub override --help >/dev/null
+"$bin" sub override edit --help >/dev/null
 "$bin" list >/dev/null
 "$bin" sub list >/dev/null
 "$bin" status >/dev/null

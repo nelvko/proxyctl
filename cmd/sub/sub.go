@@ -30,7 +30,7 @@ func NewCommand() *cobra.Command {
 			return ui.RunSubscriptions(cmd.Context(), svc)
 		},
 	}
-	cmd.AddCommand(newAddCmd(), newListCmd(), newUseCmd(), newEditCmd(), newRemoveCmd(), newUpdateCmd(), newModifyCmd(), newShowCmd())
+	cmd.AddCommand(newAddCmd(), newListCmd(), newUseCmd(), newEditCmd(), newRemoveCmd(), newUpdateCmd(), newModifyCmd(), newShowCmd(), newOverrideCmd())
 	for _, child := range cmd.Commands() {
 		switch child.Name() {
 		case "use", "update", "edit", "remove", "modify", "show":

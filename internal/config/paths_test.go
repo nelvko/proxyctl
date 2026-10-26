@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestKernelLayoutRejectsSharedNamesAndRelativeHome(t *testing.T) {
-	for _, name := range []string{"profiles", "diagnostics", "kernels", "config.yaml", "subscriptions.yaml", "state.lock", "..", "../mihomo", "mihomo/other"} {
+	for _, name := range []string{"profiles", "diagnostics", "kernels", "overrides", "config.yaml", "subscriptions.yaml", "state.lock", "..", "../mihomo", "mihomo/other"} {
 		if _, err := DefaultKernelConfig(name); err == nil {
 			t.Fatalf("accepted unsafe name %q", name)
 		}

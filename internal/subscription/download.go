@@ -159,7 +159,7 @@ func (s *Service) availableName(base string) string {
 	return name
 }
 
-func (s *Service) validateDownload(path string) error {
+func (s *Service) validateDownload(p profile, path string) error {
 	if err := s.ctx.Err(); err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func (s *Service) validateDownload(path string) error {
 	if info.Size() == 0 {
 		return errors.New("downloaded configuration is empty; nothing was saved")
 	}
-	err = s.kernel.TestConfig(s.ctx, path)
+	_, err = s.validatedConfig(p, path, nil)
 	if err == nil {
 		return nil
 	}
@@ -216,5 +216,5 @@ func (s *Service) validateDownload(path string) error {
 		_ = os.Remove(f.Name())
 		return errors.Join(errors.New(reason), saveErr)
 	}
-	return fmt.Errorf("%s\nfailed configuration saved to %s (not applied; remove it when finished)", reason, f.Name())
+	return fmt.Errorf("%s\nfailed configuration saved to %s (original download; not applied; remove it when finished)", reason, f.Name())
 }

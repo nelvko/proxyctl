@@ -51,7 +51,7 @@ func (e *EditSession) Path() string { return e.temporary }
 func (e *EditSession) Close() { _ = os.Remove(e.temporary) }
 
 func (e *EditSession) Commit() error {
-	if err := e.service.kernel.TestConfig(e.service.ctx, e.temporary); err != nil {
+	if _, err := e.service.validatedConfig(e.profile, e.temporary, nil); err != nil {
 		return err
 	}
 	if err := e.service.ctx.Err(); err != nil {

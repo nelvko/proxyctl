@@ -74,7 +74,19 @@ func (s *Service) Delete(profileName string, force bool) error {
 	if err := s.save(); err != nil {
 		return rollback(err)
 	}
-	if err := os.Remove(tgt.File); err != nil && !errors.Is(err, os.ErrNotExist) {
+	var cleanup []error
+	paths := []string{tgt.File}
+	if patch, err := profileOverridePath(tgt); err != nil {
+		cleanup = append(cleanup, err)
+	} else {
+		paths = append(paths, patch)
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanup = append(cleanup, err)
+		}
+	}
+	if err := errors.Join(cleanup...); err != nil {
 		return fmt.Errorf("profile deleted but local file cleanup failed: %w", err)
 	}
 	return nil
