@@ -34,7 +34,7 @@
 ## feat
 - [x] **多内核订阅格式管理。** 已支持 Mihomo/Clash YAML 与 sing-box JSON；添加时按选中内核记录格式，旧的无格式记录按 Clash 处理。`sub list` 显示全部格式，使用/编辑/更新只接受兼容格式，`update --all` 只处理兼容项。每种格式分别记忆订阅选择，跨内核切换不会混用配置。无订阅时的启动和运行态收尾另见 B6。
 - [ ] 目前仅支持 user 域的 systemd unit，是否建议可安装系统级的 unit
-- [ ] i18n 推荐怎么实现？推荐使用哪个依赖库？
+- [x] **i18n 基础与 TUI 优先迁移。** 采用标准库和集中式中英双语目录，不新增依赖；模型持有 Locale，现有 config.yaml 保存 language。Dashboard/外观/通用选择及弹窗组件先接入，订阅交互与表单同步迁移。支持系统语言优先级、中文回退、语言实时预览/取消/保存；完整 CLI 帮助、业务错误和第三方细节仍待分批迁移，详见 [i18n 评估与计划](docs/i18n.md)。
 - [ ] sub list 新增 json 等格式化输出的选项（当前已实现 `status --json`，不代表订阅列表/详情 JSON 已完成）。
 - [x] **订阅覆写（mixin）。** 已实现 `sub override edit/show/clear <name>` 与 `--global`；全局按配置格式隔离，原始缓存和覆写分别保存，合成后校验并应用。实现、业务回归与真实 Linux/systemd 覆写验收已完成，详见 CV9。
 - [ ] 定时更新订阅的可行性
@@ -186,3 +186,8 @@ E2E 使用已解压的本地 Linux 内核，在线下载与跨版本升级不属
 - [x] 业务回归：保存/清除不应用、合成应用与原缓存分离、无效内容变化不重启、覆写变更触发应用、格式隔离、全局逐项校验失败保留、清除失败保留、删除保存失败保留、应用失败回滚及更新重试。
 - [x] 通用检查：`GOWORK=off make verify` 通过，覆盖 vet、Go 测试、隔离 CLI smoke 与 Linux 构建。
 - [x] Linux/systemd 实机：Debian bookworm arm64，Mihomo v1.19.33 与 sing-box v1.14.4，`scripts/e2e-systemd.sh` 返回 `SYSTEMD_E2E_GREEN`。两种格式均覆盖全局 7891 被单订阅 7890 覆盖的优先级、保存/清除不应用、无效覆写拒绝、show 原文、原缓存保留，以及最终内容相同的更新不重启；此前全部服务与 Shell 生命周期回归也通过。
+
+
+## TUI 与 i18n（2026-10-28）
+
+主题、组件、订阅鼠标交互及 i18n 的已实现范围与剩余计划见 [实施状态](docs/tui-plan.md)，终端实测见 [验证记录](docs/tui-validation.md)。完整 CLI 翻译和未实测平台继续保留为后续事项。

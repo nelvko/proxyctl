@@ -40,7 +40,7 @@ subscription or chooses a node, and `Esc` returns to navigation. `r` refreshes
 and `q` exits. The footer shows the current focus and relevant keys.
 Without a terminal, the bare command prints help.
 
-The overview, subscription and read-only settings pages use proxyctl's own
+The overview, subscription and settings pages use proxyctl's own
 state. The nodes, connections, rules and live logs pages need a running kernel
 with its Clash-compatible control API enabled. The dashboard reads the control
 address and secret from the **active kernel configuration**; it does not assume
@@ -52,7 +52,20 @@ private secret. If you use subscriptions, put these settings in a global
 override and reapply the selected profile so they survive profile updates.
 Without the API, the dashboard explains why those pages are unavailable.
 The rules page loads on entry and refreshes every 10 seconds or with `r`.
-Settings show the active configuration and the CLI commands used to change it.
+Settings include appearance controls with live theme previews: `Enter` opens a
+select, arrows preview, `Enter` saves and `Esc` restores the previous theme.
+Choose Auto/Dark/Light, a built-in or custom palette, or restore defaults.
+Settings also provide System default/简体中文/English with the same preview,
+save and cancel behavior. The optional `language: en` or `language: zh-CN`
+preference uses the existing `config.yaml`; omission follows the system locale
+with a Chinese fallback. See [language support](docs/i18n.md) for precedence
+and the remaining CLI/error-message migration scope.
+`PageUp`/`PageDown` or the mouse wheel scroll settings on short terminals.
+Runtime settings still show the active configuration and CLI commands used to
+change it. See [TUI themes](docs/themes.md) for custom colors and mode precedence.
+On nodes and subscriptions, `/` or the clickable `[搜索 /]` heading opens a
+searchable picker; type to filter, then use arrows and `Enter` or click an option
+to apply it. `Esc` closes the picker and restores the page's focus.
 The wide sidebar shows live upload/download rates from the
 control API. Unavailable rates appear as `—`.
 
@@ -380,6 +393,7 @@ Dynamic completion reads saved names without starting services or downloads.
 | `internal/download` | Remote content retrieval shared by add, update, install and upgrade: transport, retries, timeouts, mirrors and progress. |
 | `internal/redact` | Sensitive URL/error redaction and control-character filtering, independent of presentation. |
 | `internal/ui` | Terminal output, prompts, progress, external editor execution and the full-screen subscription manager. |
+| `internal/i18n` | Paired Chinese/English presentation catalogs and per-model language resolution. |
 | `internal/env` | Shell environment representation and statement generation from proxy endpoints. |
 
 `app.WithStateLock` serializes mutations; it provides no automatic rollback.
