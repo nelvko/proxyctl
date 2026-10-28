@@ -25,6 +25,14 @@ func TestSubscriptionConfigRejectsUnknownSettings(t *testing.T) {
 	}
 }
 
+func TestSubscriptionConfigExplainsLegacyUpdateKey(t *testing.T) {
+	writeTestFile(t, "subscriptions.yaml", "profiles:\n  - name: work\n    url: https://example.com\n    update: {timeout: 5s}\n")
+	_, err := LoadSubscriptionConfig()
+	if err == nil || !strings.Contains(err.Error(), "use download:") || !strings.Contains(err.Error(), "invalid keys: update") {
+		t.Fatalf("legacy update key error = %v", err)
+	}
+}
+
 func TestSubscriptionDownloadSchemaRoundTrip(t *testing.T) {
 	dir := useTestDir(t)
 	want := DownloadConfig{Timeout: 25 * time.Second, UserAgent: "proxyctl-test", DownloadVia: "direct", SkipCert: true, Headers: map[string]string{"X-Test": "value"}}

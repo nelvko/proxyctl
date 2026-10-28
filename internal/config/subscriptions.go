@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"time"
@@ -53,6 +54,15 @@ func LoadSubscriptionConfig() (*SubscriptionConfig, error) {
 	}
 	cfg := &SubscriptionConfig{}
 	if err := subV.UnmarshalExact(cfg); err != nil {
+		if profiles, ok := subV.Get("profiles").([]any); ok {
+			for _, entry := range profiles {
+				if profile, ok := entry.(map[string]any); ok {
+					if _, old := profile["update"]; old {
+						return nil, fmt.Errorf("%s: profile key update: is obsolete; use download: for request settings and remove scheduling fields enable/interval/cron: %w", path, err)
+					}
+				}
+			}
+		}
 		return nil, err
 	}
 	return cfg, nil
