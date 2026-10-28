@@ -125,6 +125,24 @@ def hashes(paths):
     return [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
 
 
+def exercise_overview_summary(terminal):
+    # No core is selected in the base fixture. All four cards still need to be
+    # readable through the content viewport, without changing persistent state.
+    try:
+        terminal.send(b"\r")
+        start = len(terminal.output)
+        for _ in range(8):
+            terminal.send(b"\x1b[6~", 0.08)
+        assert b"proxyctl sub add" in terminal.output[start:], "overview tail was not reachable by keyboard"
+        start = len(terminal.output)
+        terminal.send(b"p")
+        assert b"Subscriptions" in terminal.output[start:], "overview subscription action did not navigate"
+        terminal.send(b"1")
+    except Exception:
+        terminal.close()
+        raise
+
+
 def exercise_dashboard(terminal):
     try:
         terminal.send(b"7")
@@ -167,6 +185,7 @@ def dashboard_check(binary, root, monochrome):
         environment["NO_COLOR"] = "1"
     before = hashes([app_file, profiles_file])
     terminal = Terminal([str(binary)], environment, 80, 12)
+    exercise_overview_summary(terminal)
     exercise_dashboard(terminal)
     assert hashes([app_file, profiles_file]) == before, "preview changed persisted state"
     assert b"\x1b[?1049h" in terminal.output, "alternate screen not enabled"
@@ -175,6 +194,42 @@ def dashboard_check(binary, root, monochrome):
         assert b"[38;" not in terminal.output and b"[48;" not in terminal.output, "NO_COLOR ignored"
     return {"mode": "NO_COLOR" if monochrome else "TrueColor", "settings": True,
             "theme_language_preview_cancel": True, "resize": True, "config_unchanged": True}
+
+
+
+def diagnostics_check(binary, root, monochrome):
+    environment, app_file, profiles_file = fixture(root)
+    if monochrome:
+        environment["NO_COLOR"] = "1"
+    # A legacy scheduling field reproduces a recoverable metadata error without
+    # modifying any real user configuration or invoking a core operation.
+    profiles = json.loads(profiles_file.read_text())
+    profiles["profiles"][0]["update"] = {}
+    write_json(profiles_file, profiles)
+    before = hashes([app_file, profiles_file])
+    terminal = Terminal([str(binary)], environment, 120, 24)
+    try:
+        assert b"Could not read subscription settings" in terminal.output, "metadata warning summary not visible"
+        start = len(terminal.output)
+        terminal.send(b"d")
+        assert b"Status diagnostics" in terminal.output[start:], "diagnostic shortcut did not open modal"
+        assert b"obsolete" in terminal.output[start:], "diagnostic modal hid the actionable configuration error"
+        terminal.send(b"\x1b[6~")
+        terminal.resize(42, 10)
+        terminal.resize(120, 24)
+        terminal.send(b"\x1b")
+        start = len(terminal.output)
+        terminal.click(24, 3)  # Details follows the warning in the content viewport.
+        assert b"Status diagnostics" in terminal.output[start:], "diagnostic mouse button did not open modal"
+        terminal.send(b"\x1b")
+        terminal.send(b"q")
+    finally:
+        terminal.close()
+    assert hashes([app_file, profiles_file]) == before, "diagnostic navigation changed configuration"
+    if monochrome:
+        assert b"[38;" not in terminal.output and b"[48;" not in terminal.output, "diagnostic NO_COLOR ignored"
+    return {"diagnostic_mode": "NO_COLOR" if monochrome else "TrueColor", "keyboard_mouse_open": True,
+            "modal_resize_scroll_cancel": True, "config_unchanged": True}
 
 
 def persistence_check(binary, root):
@@ -338,6 +393,7 @@ def ssh_check(binary, host):
                 command.append("NO_COLOR=1")
             command.append(str(binary))
             terminal = Terminal([*options, "-tt", host, shlex.join(command)], environment, 80, 12)
+            exercise_overview_summary(terminal)
             exercise_dashboard(terminal)
             assert remote_python(hash_code, *state_files) == before, "SSH preview changed persisted state"
             if monochrome:
@@ -418,6 +474,33 @@ def core_check(binary, core, kind, root):
                     time.sleep(0.05)
             terminal = Terminal([str(binary)], environment)
             try:
+                # The overview reuses the same group/node selector and mutation
+                # as the Nodes page. Selecting a group only changes UI state.
+                terminal.send(b"\r")
+                terminal.send(b"g")
+                terminal.send(group.encode())
+                terminal.send(b"\r")
+                assert controller(address, group_path)["now"] == "DIRECT", "overview group selection changed the core"
+                terminal.send(b"/")
+                terminal.send(target.encode())
+                terminal.send(b"\r", 0.6)
+                assert controller(address, group_path)["now"] == target, "overview keyboard selection missed real controller"
+                terminal.send(b"/")
+                terminal.send(b"DIRECT")
+                terminal.click(22, 3)  # The selector uses the same content-pane bounds.
+                terminal.drain(0.5)
+                assert controller(address, group_path)["now"] == "DIRECT", "overview mouse selection missed real controller"
+                terminal.send(b"\x1b[6~")
+                terminal.resize(42, 10)
+                terminal.send(b"\x1b[6~")
+                terminal.wheel(4, 5, down=False)
+                terminal.resize(120, 24)
+                terminal.send(b"\x1b[H")
+                start = len(terminal.output)
+                terminal.send(b"p")
+                assert b"Subscriptions" in terminal.output[start:], "overview profile action did not navigate"
+                terminal.send(b"1", 0.4)
+                # Retain the original Nodes-page path as an independent regression.
                 terminal.send(b"2", 0.6)
                 terminal.send(b"\r")
                 terminal.send(b"/")
@@ -441,7 +524,9 @@ def core_check(binary, core, kind, root):
                 process.wait(timeout=3)
     assert hashes([app_file, profiles_file]) == before, "node selection changed application preferences"
     return {"core": kind, "controller": "real", "service_status": "simulated",
-            "keyboard_selection": True, "mouse_selection": True, "config_unchanged": True}
+            "keyboard_selection": True, "mouse_selection": True, "overview_group_selection": True,
+            "overview_node_selection": True, "overview_scroll_resize": True,
+            "overview_profile_navigation": True, "config_unchanged": True}
 
 
 def main():
@@ -467,6 +552,8 @@ def main():
         root = pathlib.Path(temporary)
         for monochrome in (False, True):
             results.append(dashboard_check(binary, root / ("mono" if monochrome else "color"), monochrome))
+        for monochrome in (False, True):
+            results.append(diagnostics_check(binary, root / ("diagnostic-mono" if monochrome else "diagnostic-color"), monochrome))
         results.append(persistence_check(binary, root / "persistence"))
         for term in ("xterm-256color", "dumb"):
             results.append(capability_check(binary, root / term, term))

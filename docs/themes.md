@@ -198,3 +198,42 @@ appearance saves that preserve other application settings. Cross compilation
 does not establish rendering or input compatibility with an actual terminal.
 See the [terminal validation record](tui-validation.md) for the completed Linux,
 SSH and macOS checks and the remaining Windows Terminal verification.
+
+
+## Dashboard presentation
+
+The overview uses four themed cards: current subscription, selected proxy group,
+traffic statistics, and kernel/environment details. Wide screens use two
+columns; narrow screens stack the cards. Bubbles Viewport keeps the full
+document scrollable instead of omitting fields on short screens. `Enter`
+focuses the content, arrows and `PageUp`/`PageDown` scroll it, and `Esc` returns
+to navigation. The mouse wheel scrolls the document; visible card buttons use
+the same bounds for rendering and clicks.
+
+`p` opens subscriptions and `n` opens nodes. `g` searches for a proxy group to
+display without changing its active node. `/` opens node selection for the
+displayed Selector group and confirms through the existing controller operation.
+Other group types remain read-only. Targets are resolved by stable name against
+the latest snapshot before applying; cancellation preserves the parent focus
+and scroll position.
+
+The traffic card shows active connections, core-reported cumulative upload and
+download, and optional core-reported Go memory. Live upload/download rates stay
+in the sidebar and are not repeated in the overview. Missing or unsupported
+metrics show `—`, while known zero values remain zero. Cumulative traffic is
+neither subscription quota nor a cross-restart ledger; reported memory is not
+OS process RSS. Subscription sources show only a hostname or local-file label.
+The version is the installed binary's version, cached until its identity/file
+metadata changes or the user explicitly refreshes.
+
+Header and footer use low-contrast slash fill on the main background. Titles
+and hints reserve their own space; the slash runs expand or shrink with the
+terminal width. The final rendered cell grid fills unspecified foreground and
+background colors after nested styles, so ANSI resets cannot expose the
+terminal's unrelated background color.
+
+A failed subscription metadata read shows an unavailable value instead of a
+zero count. The overview displays a short warning; `d` or the visible Details
+button opens the existing scrollable modal with the complete redacted error.
+Closing the modal restores the previous focus. Configuration repair remains
+separate from this presentation change.

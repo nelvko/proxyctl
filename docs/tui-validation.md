@@ -31,6 +31,8 @@ The script checks:
 - Subscription row clicks, filtered selections, details/help modals, modal
   scrolling/resizing, the removal dialog's default cancellation, and form
   navigation/cancellation using mouse buttons.
+- A short overview warning for obsolete subscription fields, diagnostics opened
+  by `d` or a mouse click, full error details, scrolling/resizing and close.
 - Unchanged settings/metadata after cancelled interactions.
 - TrueColor, `NO_COLOR`, indexed 256-color degradation and monochrome
   `TERM=dumb` output; keyboard navigation works without injected mouse input.
@@ -96,3 +98,40 @@ rendering, Unicode glyph choices, mouse availability, remote multiplexers and
 theme/background detection should still be inspected in the terminal
 applications being supported. No interactive Windows Terminal result is
 claimed.
+
+
+The follow-up overview refinement also passed the Linux and SSH checks above.
+Go rendering regressions parse the final character grid and verify that every
+visible cell has its intended background, including nested styles, blank cells,
+right padding, selectors and modal surfaces. Actual Ghostty UI access was
+unavailable through the computer-use tool; these checks do not claim a new
+Ghostty application screenshot or font-rendering result.
+
+## Four-card overview follow-up
+
+The four-card overview was verified on 2026-10-28. `make verify` passed native
+and Linux vet, `go test ./...`, isolated native CLI smoke checks and the Linux
+arm64 build. Race tests passed for `internal/ui`, `internal/config` and
+`internal/i18n`; Windows amd64 cross-compilation also passed.
+
+Go regressions cover two-column/stacked layouts, scrolling and resize bounds,
+Unicode cell widths, slash boundaries, focus restoration, mouse hit mapping,
+search cancellation and stable/stale group identities. Metric tests distinguish
+missing from known-zero values and verify safe source labels, version caching
+and the absence of duplicated live rates in overview cards.
+
+Linux PTY and actual SSH PTY checks passed overview scrolling and subscription
+navigation, diagnostic keyboard/mouse actions and modal scrolling/resizing,
+theme/language persistence and reload, independent subscription interactions,
+TrueColor/NO_COLOR/256-color/TERM=dumb output, and Auto background behavior.
+Cancelled interactions preserved configuration hashes. Real Mihomo v1.19.33
+and sing-box v1.14.4 loopback APIs confirmed that overview group selection is
+UI-only and node confirmation works by keyboard and mouse, including a
+42×10 resize/scroll/navigation scenario and regression of the Nodes page.
+Service status remained simulated; service lifecycle was not tested.
+
+This follow-up ran macOS native builds and Go tests, with no new macOS PTY
+run. The macOS PTY result above belongs to the earlier refinement. Windows
+Terminal and Ghostty application rendering remain unverified. Preview PNGs
+render the actual character grid with example fixture data; they are not
+screenshots of those terminal applications.
