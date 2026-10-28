@@ -30,6 +30,10 @@ type Config struct {
 	// Mirror is a GitHub mirror prefix (or comma-separated list) used to
 	// accelerate kernel downloads; the GH_PROXY env variable overrides it.
 	Mirror string `mapstructure:"mirror"`
+	// Theme contains TUI appearance preferences; absent settings keep auto mode.
+	Theme ThemeConfig `mapstructure:"theme" yaml:"theme,omitempty"`
+	// Language is a presentation preference; empty follows the system locale.
+	Language string `mapstructure:"language" yaml:"language,omitempty"`
 }
 
 // KernelConfig is one installed kernel's on-disk entry.
@@ -85,29 +89,52 @@ func (c *Config) RemoveKernel(name string) {
 }
 
 func Load() (*Config, error) {
-	path, err := appConfigFile()
+	appV, path, err := readConfig()
 	if err != nil {
 		return nil, err
 	}
-	// No config file yet means no kernel installed — not an error.
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+	if appV == nil {
 		return &Config{}, nil
 	}
-	appV := viper.New()
-	appV.SetConfigFile(path)
-	if err := appV.ReadInConfig(); err != nil {
+	// Decode appearance separately. A malformed optional theme must not make
+	// kernel and subscription commands unusable; the TUI exposes its warning
+	// through LoadTheme. Preserve errors from all other settings.
+	settings := appV.AllSettings()
+	delete(settings, "theme")
+	delete(settings, "language")
+	coreV := viper.New()
+	if err := coreV.MergeConfigMap(settings); err != nil {
 		return nil, err
 	}
 	cfg := &Config{}
-	if err := appV.Unmarshal(cfg); err != nil {
+	if err := coreV.Unmarshal(cfg); err != nil {
 		return nil, err
 	}
+	cfg.Theme, _ = decodeTheme(appV.Get("theme"))
+	cfg.Language, _ = decodeLanguage(appV.Get("language"))
 	// The config predates the multi-kernel format; refuse loudly instead
 	// of silently seeing zero kernels.
 	if len(cfg.Kernels) == 0 && appV.IsSet("kernel") {
 		return nil, fmt.Errorf("%s uses the old single-kernel format, remove it and run `proxyctl install`", path)
 	}
 	return cfg, nil
+}
+
+func readConfig() (*viper.Viper, string, error) {
+	path, err := appConfigFile()
+	if err != nil {
+		return nil, "", err
+	}
+	// No config file yet means no kernel installed — not an error.
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, path, nil
+	}
+	appV := viper.New()
+	appV.SetConfigFile(path)
+	if err := appV.ReadInConfig(); err != nil {
+		return nil, path, err
+	}
+	return appV, path, nil
 }
 
 func Save(cfg *Config) error {
