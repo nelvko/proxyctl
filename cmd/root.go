@@ -46,7 +46,7 @@ calling shell's proxy environment and can also stop the service with --stop.`,
 		&cobra.Group{ID: "shell", Title: "Shell Integration"},
 	)
 	root.AddCommand(kernelcmd.NewCommands()...)
-	root.AddCommand(sub.NewCommand(), newOnCmd(), newOffCmd(), newStatusCmd(), newEnvCmd(), newInitCmd())
+	root.AddCommand(sub.NewCommand(), newOnCmd(), newOffCmd(), newStatusCmd(), newEnvCmd(), newInitCmd(), newThemeCmd())
 	wrapCommandErrors(root)
 	return root
 }
