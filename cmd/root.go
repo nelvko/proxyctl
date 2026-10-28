@@ -7,6 +7,7 @@ import (
 	kernelcmd "github.com/nelvko/proxyctl/cmd/kernel"
 	"github.com/nelvko/proxyctl/cmd/sub"
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -28,6 +29,14 @@ calling shell's proxy environment and can also stop the service with --stop.`,
   proxyctl off`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			out, fileOutput := cmd.OutOrStdout().(*os.File)
+			if !term.IsTerminal(int(os.Stdin.Fd())) || !fileOutput || !term.IsTerminal(int(out.Fd())) {
+				return cmd.Help()
+			}
+			return ui.RunDashboard(cmd.Context())
+		},
 	}
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)

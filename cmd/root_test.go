@@ -36,6 +36,14 @@ func runCommand(args ...string) (string, string, error) {
 	return out.String(), stderr.String(), err
 }
 
+func TestRootWithoutTerminalShowsHelp(t *testing.T) {
+	isolatedConfig(t)
+	out, _, err := runCommand()
+	if err != nil || !strings.Contains(out, "Manage proxy kernels") {
+		t.Fatalf("root help: %q %v", out, err)
+	}
+}
+
 func TestShellCleanupIgnoresBrokenState(t *testing.T) {
 	dir := isolatedConfig(t)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

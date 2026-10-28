@@ -28,6 +28,38 @@ proxyctl sub add 'https://example.com/subscription' --name work --use
 proxyctl on
 ```
 
+## Terminal dashboard
+
+Run `proxyctl` without arguments in a terminal to open the dashboard. Narrow or
+short terminals show page tabs across the top; at 110 columns and 19 rows or
+larger the pages move to a left sidebar. Click a tab/sidebar item or press
+`1`–`7` to switch pages. `Tab` and `Shift+Tab` cycle pages. Navigation starts
+focused: use `↑`/`↓` to switch sidebar pages (or `←`/`→` on top tabs), then `Enter` to
+focus the page content. Within a page, `↑`/`↓` select rows, `Enter` applies a
+subscription or chooses a node, and `Esc` returns to navigation. `r` refreshes
+and `q` exits. The footer shows the current focus and relevant keys.
+Without a terminal, the bare command prints help.
+
+The overview, subscription and read-only settings pages use proxyctl's own
+state. The nodes, connections, rules and live logs pages need a running kernel
+with its Clash-compatible control API enabled. The dashboard reads the control
+address and secret from the **active kernel configuration**; it does not assume
+port 9090 or change existing configurations. For Mihomo, configure
+`external-controller` and `secret`; for sing-box, configure
+`experimental.clash_api.external_controller`
+and `experimental.clash_api.secret`. Bind the API to `127.0.0.1` and set a
+private secret. If you use subscriptions, put these settings in a global
+override and reapply the selected profile so they survive profile updates.
+Without the API, the dashboard explains why those pages are unavailable.
+The rules page loads on entry and refreshes every 10 seconds or with `r`.
+Settings show the active configuration and the CLI commands used to change it.
+The wide sidebar shows live upload/download rates from the
+control API. Unavailable rates appear as `—`.
+
+The dashboard distinguishes shared kernel service state from the calling
+shell's proxy variables. To change the parent shell environment, run
+`proxyctl on` or `proxyctl off` in that shell.
+
 Mihomo and sing-box installations initialize a minimal valid configuration with
 a mixed HTTP/SOCKS listener at `127.0.0.1:7890` and direct outbound routing.
 Subscriptions are optional: `start` needs a valid kernel configuration, while
