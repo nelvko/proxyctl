@@ -169,8 +169,10 @@ func TestDashboardSidebarRatesAdaptToHeight(t *testing.T) {
 		t.Fatalf("unavailable traffic was not marked: %q", unavailable)
 	}
 	m.height = 20
-	if strings.Contains(ansi.Strip(m.View().Content), "──────────────") {
-		t.Fatal("status block overlaps navigation on short terminals")
+	for _, line := range strings.Split(ansi.Strip(m.View().Content), "\n") {
+		if strings.HasPrefix(line, "  ──────────────") {
+			t.Fatal("status block overlaps navigation on short terminals")
+		}
 	}
 	m.height, m.width = 24, dashboardWideWidth-1
 	if strings.Contains(ansi.Strip(m.View().Content), "当前状态") {

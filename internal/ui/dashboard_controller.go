@@ -180,6 +180,44 @@ type dashboardConnections struct {
 	DownloadTotal int64                 `json:"downloadTotal"`
 	UploadTotal   int64                 `json:"uploadTotal"`
 	Connections   []dashboardConnection `json:"connections"`
+	// Memory is the core's reported memory statistic, not process RSS.
+	Memory *int64 `json:"memory"`
+
+	// Optional metrics must distinguish a known zero from an unsupported or
+	// omitted field. Both supported cores may encode an empty list as null.
+	Available          bool `json:"-"`
+	DownloadTotalKnown bool `json:"-"`
+	UploadTotalKnown   bool `json:"-"`
+}
+
+func (result *dashboardConnections) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		DownloadTotal *int64          `json:"downloadTotal"`
+		UploadTotal   *int64          `json:"uploadTotal"`
+		Memory        *int64          `json:"memory"`
+		Connections   json.RawMessage `json:"connections"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	next := dashboardConnections{}
+	if raw.Connections != nil {
+		if err := json.Unmarshal(raw.Connections, &next.Connections); err != nil {
+			return err
+		}
+		next.Available = true
+	}
+	if raw.DownloadTotal != nil && *raw.DownloadTotal >= 0 {
+		next.DownloadTotal, next.DownloadTotalKnown = *raw.DownloadTotal, true
+	}
+	if raw.UploadTotal != nil && *raw.UploadTotal >= 0 {
+		next.UploadTotal, next.UploadTotalKnown = *raw.UploadTotal, true
+	}
+	if raw.Memory != nil && *raw.Memory >= 0 {
+		next.Memory = raw.Memory
+	}
+	*result = next
+	return nil
 }
 
 func (c *controllerClient) connections(ctx context.Context) (dashboardConnections, error) {

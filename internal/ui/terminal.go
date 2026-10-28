@@ -23,6 +23,37 @@ func terminalContent(content string, profile colorprofile.Profile) string {
 	return content
 }
 
+// terminalFrame fills only unspecified cell colors after composing nested
+// styles. Wrapping ANSI text in a background style is insufficient: resets
+// inside child styles also reset that outer background in Lip Gloss v2.
+// Explicit component surfaces and selections keep their own colors.
+func terminalFrame(content string, width, height int, theme Theme, profile colorprofile.Profile) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	if !terminalColorsEnabled() || profile == colorprofile.NoTTY || profile == colorprofile.ASCII {
+		return ansi.Strip(modalGrid(content, width, height))
+	}
+	canvas := lipgloss.NewCanvas(width, height).Compose(lipgloss.NewLayer(content))
+	foreground, background := themeColor(theme.Foreground), themeColor(theme.Background)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			cell := canvas.CellAt(x, y)
+			// Wide glyph continuation cells must remain zero width.
+			if cell == nil || cell.Width == 0 {
+				continue
+			}
+			if cell.Style.Fg == nil {
+				cell.Style.Fg = foreground
+			}
+			if cell.Style.Bg == nil {
+				cell.Style.Bg = background
+			}
+		}
+	}
+	return modalGrid(canvas.Render(), width, height)
+}
+
 func singleLine(value string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

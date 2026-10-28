@@ -18,6 +18,8 @@ func (m *dashboardModel) openPicker() tea.Cmd {
 	var options []SelectOption
 	var title, value string
 	switch m.page {
+	case dashboardOverviewPage:
+		return m.openOverviewPicker()
 	case dashboardNodesPage:
 		group, ok := m.selectedGroup()
 		if !ok {
@@ -49,6 +51,7 @@ func (m dashboardModel) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.layoutPicker()
 	result, cmd := m.picker.Update(msg)
 	if result.Cancelled {
+		m.overview.pickerKind = ""
 		m.picker = nil
 		return m, nil
 	}
@@ -56,6 +59,9 @@ func (m dashboardModel) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.picker = nil
+	if m.page == dashboardOverviewPage {
+		return m, m.confirmOverviewPicker(result.Value)
+	}
 	// Periodic refreshes can reorder or remove the underlying options while
 	// searching. Resolve stable names against the current snapshot on commit.
 	if m.page == dashboardNodesPage {
@@ -93,6 +99,15 @@ func (m *dashboardModel) dashboardWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		key = "down"
 	}
 	if key == "" {
+		return nil
+	}
+	if m.page == dashboardOverviewPage {
+		m.layoutOverview()
+		if msg.Button == tea.MouseWheelUp {
+			m.overview.viewport.ScrollUp(3)
+		} else {
+			m.overview.viewport.ScrollDown(3)
+		}
 		return nil
 	}
 	if m.page == dashboardNodesPage {
@@ -234,6 +249,15 @@ func (m dashboardModel) dashboardHeaderLine(width int) (string, bool) {
 
 func (m *dashboardModel) dashboardContentClick(msg tea.MouseClickMsg) tea.Cmd {
 	if m.busy || !m.contentBounds().Contains(msg.X, msg.Y) {
+		return nil
+	}
+	if m.page == dashboardOverviewPage {
+		m.layoutOverview()
+		for _, action := range m.overviewActions() {
+			if action.button.Update(msg) {
+				return m.overviewKey(action.key)
+			}
+		}
 		return nil
 	}
 	actions, _ := m.dashboardHeaderActions()

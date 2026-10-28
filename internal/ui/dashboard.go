@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/color"
 	"os"
 	"os/signal"
 	"strings"
@@ -46,10 +45,13 @@ type dashboardSnapshot struct {
 	controller                                         *controllerClient
 	controllerHint                                     string
 	err                                                error
+	profileErr                                         error
+	runtime                                            dashboardRuntimeInfo
 }
 
 func readDashboardSnapshot(ctx context.Context, page int) dashboardSnapshot {
 	var result dashboardSnapshot
+	result.runtime = readDashboardRuntimeInfo(nil, nil)
 	result.kernel, result.service, result.profile, result.proxy = "未选择", "-", "未选择", "-"
 	result.shell = "未启用"
 	for _, name := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"} {
@@ -60,7 +62,7 @@ func readDashboardSnapshot(ctx context.Context, page int) dashboardSnapshot {
 	}
 	profiles, err := app.LoadProfileMetadata(ctx)
 	if err != nil {
-		result.err = err
+		result.err, result.profileErr = err, err
 	} else {
 		result.profiles = profiles.List()
 		if profiles.SelectedName() != "" {
@@ -79,6 +81,7 @@ func readDashboardSnapshot(ctx context.Context, page int) dashboardSnapshot {
 	}
 	result.kernel = cfg.Name
 	result.configFile = cfg.ConfigFile
+	result.runtime = readDashboardRuntimeInfo(cfg, nil)
 	k, err := a.Kernel()
 	if err != nil {
 		result.service = "未知"
@@ -93,8 +96,11 @@ func readDashboardSnapshot(ctx context.Context, page int) dashboardSnapshot {
 	} else {
 		result.service = "已停止"
 	}
-	if endpoints, err := k.ProxyEndpoints(); err == nil {
-		result.proxy = redact.URL(endpoints.Preferred())
+	result.runtime = readDashboardRuntimeInfo(cfg, k)
+	if result.runtime.HTTP != "" {
+		result.proxy = result.runtime.HTTP
+	} else if result.runtime.SOCKS != "" {
+		result.proxy = result.runtime.SOCKS
 	}
 	controller, err := controllerFromConfig(cfg)
 	if err != nil {
@@ -190,6 +196,9 @@ type dashboardModel struct {
 	hoverPage                              int
 	hoverX, hoverY                         int
 	appearance                             appearanceState
+	overview                               overviewState
+	version                                dashboardVersionState
+	dialog                                 Modal
 	picker                                 *SelectModal
 	pickerGroup                            string
 }
@@ -214,6 +223,7 @@ func newDashboardModel(ctx context.Context) dashboardModel {
 		locale: locale, language: language,
 		theme: theme, themeConfig: cfg, hoverPage: -1, hoverX: -1, hoverY: -1, notice: notice, noticeError: notice != "",
 		appearance: newAppearanceState(cfg),
+		overview:   newOverviewState(),
 		ctx:        ctx,
 		loading:    true,
 		navFocused: true,
@@ -247,6 +257,7 @@ func (m *dashboardModel) switchPage(page int) tea.Cmd {
 	}
 	m.cancelAppearance()
 	m.picker = nil
+	m.overview.pickerKind = ""
 	m.hoverPage = -1
 	m.hoverX, m.hoverY = -1, -1
 	m.navFocused = true
@@ -319,6 +330,18 @@ func nextDashboardLog(events <-chan dashboardLogMsg, generation int) tea.Cmd {
 }
 
 func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.dialog.Active {
+		switch input := msg.(type) {
+		case tea.KeyPressMsg:
+			if input.String() != "ctrl+c" {
+				_, cmd := m.dialog.Update(msg)
+				return m, cmd
+			}
+		case tea.MouseMsg:
+			_, cmd := m.dialog.Update(msg)
+			return m, cmd
+		}
+	}
 	if m.picker != nil {
 		switch input := msg.(type) {
 		case tea.KeyPressMsg:
@@ -354,6 +377,8 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hoverX, m.hoverY = -1, -1
 		m.layoutAppearance()
 		m.layoutPicker()
+		m.layoutOverview()
+		m.dialog.SetBounds(Rect{Width: m.width, Height: m.height})
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.darkBG = msg.IsDark()
@@ -366,6 +391,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.appearanceSaved(msg)
 	case languageSavedMsg:
 		return m, m.languageSaved(msg)
+	case dashboardVersionMsg:
+		m.version.Apply(msg)
+		return m, nil
 	case dashboardTickMsg:
 		cmds := []tea.Cmd{dashboardTick()}
 		if m.trafficCancel != nil && time.Since(m.trafficAt) > 5*time.Second {
@@ -390,6 +418,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		old := m.snapshot.controller
 		m.snapshot = msg.snapshot
+		if m.overview.groupName == "" && len(m.snapshot.groups) > 0 {
+			m.overview.groupName = m.snapshot.groups[0].Name
+		}
+		versionCmd := m.version.Refresh(m.ctx, m.snapshot.runtime)
 		if m.trafficCancel != nil && (!sameController(old, m.snapshot.controller) || m.snapshot.service != "运行中") {
 			m.stopTraffic()
 		}
@@ -415,9 +447,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logCancel()
 				m.logCancel = nil
 			}
-			return m, tea.Batch(m.startLogs(), m.startTraffic())
+			return m, tea.Batch(m.startLogs(), m.startTraffic(), versionCmd)
 		}
-		return m, m.startTraffic()
+		return m, tea.Batch(m.startTraffic(), versionCmd)
 	case dashboardActionMsg:
 		m.busy = false
 		if m.actionCancel != nil {
@@ -487,7 +519,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		wide := dashboardSidebarLayout(m.width, m.height)
 		contentClick := !wide && msg.Y >= 2 || wide && msg.X >= 19
-		if contentClick && m.page != dashboardOverviewPage && msg.Y > 0 && msg.Y < m.height-1 {
+		if contentClick && msg.Y > 0 && msg.Y < m.height-1 {
 			m.navFocused = false
 		}
 		return m, m.dashboardContentClick(msg)
@@ -517,6 +549,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.busy {
 			return m, nil
 		}
+		if m.page == dashboardOverviewPage && key == "d" {
+			m.openOverviewDiagnostics()
+			return m, nil
+		}
 		if len(key) == 1 && key[0] >= '1' && key[0] < '1'+byte(len(dashboardPages)) {
 			return m, m.switchPage(int(key[0] - '1'))
 		}
@@ -527,6 +563,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.switchPage((m.page + len(dashboardPages) - 1) % len(dashboardPages))
 		}
 		if key == "r" && !m.loading {
+			m.version.Invalidate()
 			m.loading = true
 			return m, m.loadSnapshot()
 		}
@@ -537,11 +574,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j", "right":
 				return m, m.switchPage((m.page + 1) % len(dashboardPages))
 			case "enter":
-				if m.page != dashboardOverviewPage {
-					m.navFocused = false
-					if m.page == dashboardSettingsPage {
-						m.focusAppearance()
-					}
+				m.navFocused = false
+				if m.page == dashboardSettingsPage {
+					m.focusAppearance()
 				}
 			}
 			return m, nil
@@ -559,6 +594,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *dashboardModel) pageKey(key string) tea.Cmd {
+	if m.page == dashboardOverviewPage {
+		return m.overviewKey(key)
+	}
 	if key == "/" {
 		return m.openPicker()
 	}
@@ -594,16 +632,8 @@ func (m *dashboardModel) pageKey(key string) tea.Cmd {
 			return nil
 		}
 		m.node = clamp(m.node+delta, len(group.All))
-		if key == "enter" && len(group.All) > 0 && m.snapshot.controller != nil {
-			m.busy = true
-			name := group.All[m.node]
-			controller := m.snapshot.controller
-			ctx, cancel := context.WithCancel(m.ctx)
-			m.actionCancel = cancel
-			return func() tea.Msg {
-				err := controller.selectProxy(ctx, group.Name, name)
-				return dashboardActionMsg{message: m.tr("dashboard.selected", name), err: err}
-			}
+		if key == "enter" && len(group.All) > 0 {
+			return m.applyDashboardNode(group.Name, group.All[m.node])
 		}
 	case dashboardSubscriptionsPage:
 		m.profile = clamp(m.profile+delta, len(m.snapshot.profiles))
@@ -675,19 +705,23 @@ func (m dashboardModel) View() tea.View {
 	if wide {
 		contentWidth = max(1, w-19)
 	}
-	boundaryColor := themeColor(m.theme.Border)
 	pages := m.pageNames()
 	header := pages[m.page]
 	if !wide {
 		header = "proxyctl · " + header
 	}
-	lines := []string{m.dashboardBoundary(header, w, lipgloss.Center, lipgloss.NewStyle().Foreground(m.styles.Indigo).Bold(true), boundaryColor)}
+	lines := []string{m.dashboardBoundary(header, w, lipgloss.Center,
+		lipgloss.NewStyle().Foreground(themeColor(m.theme.Primary)).Bold(true))}
 	if !wide {
 		lines = append(lines, m.dashboardTabs(w))
 	}
 	bodyHeight := max(0, h-len(lines)-1)
 	body := m.pageLines(bodyHeight)
 	styledBody := false
+	if m.page == dashboardOverviewPage {
+		body = m.overviewViewLines(contentWidth, bodyHeight)
+		styledBody = true
+	}
 	if m.page == dashboardSettingsPage {
 		body = m.settingsViewLines(contentWidth, bodyHeight)
 		styledBody = true
@@ -748,7 +782,7 @@ func (m dashboardModel) View() tea.View {
 				nav = fmt.Sprintf("  %d  %s", index+1, pages[index])
 				selected = index == m.page
 				if selected {
-					nav = fmt.Sprintf("▶ %d  %s", index+1, pages[index])
+					nav = fmt.Sprintf(" ▶ %d  %s", index+1, pages[index])
 				}
 			}
 			navStyle := lipgloss.NewStyle().Foreground(themeColor(m.theme.Muted))
@@ -802,6 +836,11 @@ func (m dashboardModel) View() tea.View {
 		}
 	} else {
 		switch m.page {
+		case dashboardOverviewPage:
+			footer = m.tr("help.overview_content")
+			if w < 80 {
+				footer = m.tr("help.overview_compact")
+			}
 		case dashboardNodesPage:
 			footer = m.tr("help.nodes")
 		case dashboardSubscriptionsPage:
@@ -837,17 +876,19 @@ func (m dashboardModel) View() tea.View {
 			footerStyle = footerStyle.Foreground(m.styles.Red)
 		}
 	}
-	if m.notice != "" && m.noticeError {
-		boundaryColor = m.styles.Red
+	if m.page == dashboardOverviewPage && m.overviewError() != nil && m.notice == "" {
+		footer += "  ·  " + m.tr("overview.details_short")
 	}
-	lines = append(lines, m.dashboardBoundary(footer, w, lipgloss.Left, footerStyle, boundaryColor))
+	lines = append(lines, m.dashboardBoundary(footer, w, lipgloss.Left, footerStyle))
 	// Keep even a 1-row terminal within its reported character grid.
 	if len(lines) > h {
 		lines = lines[:h]
 	}
 	content := strings.Join(lines, "\n")
-	content = lipgloss.NewStyle().Background(themeColor(m.theme.Background)).Render(content)
-	v := tea.NewView(terminalContent(content, m.colorProfile))
+	if m.dialog.Active {
+		content = m.dialog.Overlay(content, m.theme, w, h)
+	}
+	v := tea.NewView(terminalFrame(content, w, h, m.theme, m.colorProfile))
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	return v
@@ -947,19 +988,19 @@ func dashboardTabLayoutWithLabels(width int, pages []string) dashboardTabMode {
 	}
 }
 
-func (m dashboardModel) dashboardBoundary(text string, width int, position lipgloss.Position, style lipgloss.Style, accent color.Color) string {
+func (m dashboardModel) dashboardBoundary(text string, width int, position lipgloss.Position, style lipgloss.Style) string {
+	if width <= 0 {
+		return ""
+	}
+	style = style.Background(themeColor(m.theme.Background))
 	if width < 8 {
 		return style.Render(dashboardLine(text, width, false))
 	}
-	labelWidth := min(lipgloss.Width(text), width-8)
+	labelWidth := min(lipgloss.Width(singleLine(text)), width-6)
 	label := style.Padding(0, 2).Render(dashboardLine(text, labelWidth, false))
-	return lipgloss.PlaceHorizontal(
-		width,
-		position,
-		label,
+	return lipgloss.PlaceHorizontal(width, position, label,
 		lipgloss.WithWhitespaceChars("/"),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(accent)),
-	)
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(themeColor(m.theme.Border)).Background(themeColor(m.theme.Background))))
 }
 
 func (m dashboardModel) dashboardBodyLine(value string, width int) string {
@@ -1021,8 +1062,6 @@ func dashboardLine(value string, width int, highlight bool) string {
 
 func (m dashboardModel) pageLines(height int) []string {
 	switch m.page {
-	case dashboardOverviewPage:
-		return m.overviewLines()
 	case dashboardNodesPage:
 		return m.nodeLines(height)
 	case dashboardSubscriptionsPage:
@@ -1037,24 +1076,6 @@ func (m dashboardModel) pageLines(height int) []string {
 		return m.settingsLines(height)
 	}
 	return nil
-}
-
-func (m dashboardModel) overviewLines() []string {
-	s := m.snapshot
-	lines := []string{"", m.tr("overview.status"), "", m.tr("settings.kernel", m.displayState(s.kernel)), m.tr("settings.service", m.displayState(s.service)), m.tr("settings.proxy", s.proxy), m.tr("settings.shell", m.displayState(s.shell)), "", m.tr("overview.traffic"), "", m.tr("settings.profile", m.displayState(s.profile)), m.tr("overview.count", len(s.profiles))}
-	if s.controller != nil && s.service == "运行中" {
-		lines = append(lines, "", m.tr("overview.connections", len(s.connections.Connections)))
-		if len(s.groups) > 0 {
-			lines = append(lines, m.tr("overview.groups", redact.Text(s.groups[0].Name+" → "+s.groups[0].Now)))
-		}
-	}
-	if s.controllerHint != "" {
-		lines = append(lines, "", "  "+m.displayHint(s.controllerHint))
-	}
-	if s.err != nil {
-		lines = append(lines, "", m.tr("settings.error", redact.Text(s.err.Error())))
-	}
-	return lines
 }
 
 func (m dashboardModel) nodeLines(height int) []string {

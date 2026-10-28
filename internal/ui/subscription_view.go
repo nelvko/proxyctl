@@ -112,7 +112,7 @@ func (m model) View() tea.View {
 	if m.dialog.Active {
 		content = m.dialog.Overlay(content, m.theme, m.width, m.height)
 	}
-	v := tea.NewView(terminalContent(modalGrid(content, m.width, m.height), m.colorProfile))
+	v := tea.NewView(terminalFrame(content, m.width, m.height, m.theme, m.colorProfile))
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	return v

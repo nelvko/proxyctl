@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/nelvko/proxyctl/internal/i18n"
 )
 
@@ -219,7 +220,9 @@ func (m Modal) View(theme Theme, width, height int) string {
 	panel := lipgloss.NewStyle().Foreground(themeColor(theme.Foreground)).Background(themeColor(theme.Surface)).
 		Border(lipgloss.RoundedBorder()).BorderForeground(themeColor(accent)).BorderBackground(themeColor(theme.Surface)).
 		Render(strings.Join(lines, "\n"))
-	return modalGrid(panel, w, h)
+	surface := theme
+	surface.Background = theme.Surface
+	return terminalFrame(panel, w, h, surface, colorprofile.TrueColor)
 }
 
 func (m Modal) Overlay(base string, theme Theme, width, height int) string {
