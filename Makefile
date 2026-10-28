@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 GO ?= go
 GOARCH ?= $(shell $(GO) env GOARCH)
-BUILD_DIR ?= $(CURDIR)/dist
+BUILD_DIR := $(CURDIR)/dist
 BIN := $(BUILD_DIR)/proxyctl
 LINUX_BIN := $(BUILD_DIR)/proxyctl-linux-$(GOARCH)
 

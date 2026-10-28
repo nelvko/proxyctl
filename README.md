@@ -466,6 +466,9 @@ configuration. Port 7890 must be free. Test services and temporary files are
 removed on exit; existing proxyctl state is preserved.
 
 `make e2e`, `make e2e-shell` and `make e2e-reset` run this same isolated suite.
-`make e2e-status` reads the VM's normal configuration; `make shell` opens an
-interactive shell. Override `VM` and `VM_BIN` as needed. The default build and
-`verify` require neither OrbStack nor Docker.
+`make e2e-status` reads the VM's normal configuration; `make vm` opens an
+interactive shell. Inside it, `m` builds with the VM's Go into the host `dist`
+directory by default; `make vm-rebuild` runs the same build from the host.
+Override `VM` and `VM_BIN` as needed. `VM_BIN` is an absolute VM path or a path
+relative to the project checkout. The default build and `verify` require
+neither OrbStack nor Docker.
