@@ -33,7 +33,7 @@ func (m *model) startOperation(mutate func(context.Context, download.Notify, fun
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancel = cancel
 	m.busy = true
-	return tea.Batch(m.pendingMessage("Working… (ctrl+c to cancel)"), m.list.StartSpinner(), func() tea.Msg {
+	return tea.Batch(m.pendingMessage(m.tr("sub.working")), m.workSpinner.Tick, func() tea.Msg {
 		defer cancel()
 		result := operationFinishedMsg{}
 		var diagnostics diagnostics
@@ -79,6 +79,6 @@ func (m *model) startEditor(name string) tea.Cmd {
 	editor := &tuiEditor{ctx: ctx, name: name}
 	return tea.Exec(editor, func(err error) tea.Msg {
 		cancel()
-		return operationFinishedMsg{profiles: editor.profiles, warnings: editor.diagnostics.Text(), message: "Edited; press enter to apply. Updating replaces local edits.", err: err}
+		return operationFinishedMsg{profiles: editor.profiles, warnings: editor.diagnostics.Text(), message: m.tr("sub.edited"), err: err}
 	})
 }

@@ -10,13 +10,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/i18n"
 	"github.com/nelvko/proxyctl/internal/redact"
 	"github.com/nelvko/proxyctl/internal/subscription"
 )
@@ -165,8 +166,10 @@ type dashboardModel struct {
 	quitAfter                              bool
 	snapshot                               dashboardSnapshot
 	notice                                 string
+	noticeError                            bool
 	logs                                   []string
 	logPaused                              bool
+	logScroll                              int
 	logCancel                              context.CancelFunc
 	logEvents                              chan dashboardLogMsg
 	logGeneration                          int
@@ -179,15 +182,43 @@ type dashboardModel struct {
 	ruleTick                               int
 	darkBG                                 bool
 	styles                                 styles
+	theme                                  Theme
+	themeConfig                            config.ThemeConfig
+	locale                                 i18n.Locale
+	language                               string
+	colorProfile                           colorprofile.Profile
+	hoverPage                              int
+	hoverX, hoverY                         int
+	appearance                             appearanceState
+	picker                                 *SelectModal
+	pickerGroup                            string
 }
 
 func newDashboardModel(ctx context.Context) dashboardModel {
+	cfg, loadErr := loadThemeConfig()
+	language, languageErr := config.LoadLanguage()
+	locale, localeErr := i18n.Resolve(language)
+	theme, themeErr := resolveTheme(cfg, true)
+	notice := ""
+	if loadErr != nil {
+		notice = i18n.Text(locale, "appearance.load_failed", loadErr.Error())
+	} else if themeErr != nil {
+		notice = i18n.Text(locale, "appearance.fallback", themeErr.Error())
+	}
+	if languageErr != nil {
+		notice = i18n.Text(locale, "language.load_failed", languageErr.Error())
+	} else if localeErr != nil {
+		notice = i18n.Text(locale, "language.load_failed", localeErr.Error())
+	}
 	return dashboardModel{
+		locale: locale, language: language,
+		theme: theme, themeConfig: cfg, hoverPage: -1, hoverX: -1, hoverY: -1, notice: notice, noticeError: notice != "",
+		appearance: newAppearanceState(cfg),
 		ctx:        ctx,
 		loading:    true,
 		navFocused: true,
 		darkBG:     true,
-		styles:     newStyles(true),
+		styles:     newThemedStyles(theme),
 		snapshot: dashboardSnapshot{
 			kernel: "读取中", service: "-", profile: "-", proxy: "-", shell: "-",
 		},
@@ -214,6 +245,10 @@ func (m *dashboardModel) switchPage(page int) tea.Cmd {
 	if page < 0 || page >= len(dashboardPages) {
 		return nil
 	}
+	m.cancelAppearance()
+	m.picker = nil
+	m.hoverPage = -1
+	m.hoverX, m.hoverY = -1, -1
 	m.navFocused = true
 	if page == m.page {
 		return nil
@@ -284,6 +319,21 @@ func nextDashboardLog(events <-chan dashboardLogMsg, generation int) tea.Cmd {
 }
 
 func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.picker != nil {
+		switch input := msg.(type) {
+		case tea.KeyPressMsg:
+			if input.String() != "ctrl+c" {
+				return m.updatePicker(msg)
+			}
+		case tea.MouseMsg:
+			return m.updatePicker(msg)
+		}
+	}
+	if m.page == dashboardSettingsPage && !m.busy {
+		if handled, cmd := m.updateAppearance(msg); handled {
+			return m, cmd
+		}
+	}
 	switch msg := msg.(type) {
 	case dashboardCancelledMsg:
 		m.stopTraffic()
@@ -300,11 +350,22 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.hoverPage = -1
+		m.hoverX, m.hoverY = -1, -1
+		m.layoutAppearance()
+		m.layoutPicker()
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.darkBG = msg.IsDark()
-		m.styles = newStyles(m.darkBG)
+		m.applyTheme()
 		return m, nil
+	case tea.ColorProfileMsg:
+		m.colorProfile = msg.Profile
+		return m, nil
+	case appearanceSavedMsg:
+		return m, m.appearanceSaved(msg)
+	case languageSavedMsg:
+		return m, m.languageSaved(msg)
 	case dashboardTickMsg:
 		cmds := []tea.Cmd{dashboardTick()}
 		if m.trafficCancel != nil && time.Since(m.trafficAt) > 5*time.Second {
@@ -375,6 +436,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.notice = msg.message
 		}
+		m.noticeError = msg.err != nil
 		m.loading = true
 		return m, m.loadSnapshot()
 	case dashboardLogMsg:
@@ -383,7 +445,8 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.done {
 			if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
-				m.notice = "日志流已断开: " + redact.Text(msg.err.Error())
+				m.notice = m.tr("dashboard.logs_lost", redact.Text(msg.err.Error()))
+				m.noticeError = true
 			}
 			m.logCancel = nil
 			m.logEvents = nil
@@ -408,25 +471,38 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trafficAvailable = true
 		m.trafficAt = time.Now()
 		return m, nextDashboardTraffic(m.trafficEvents, m.trafficGeneration)
+	case tea.MouseMotionMsg:
+		m.hoverPage = dashboardClickPageWithLabels(m.width, m.height, msg.X, msg.Y, m.pageNames())
+		m.hoverX, m.hoverY = msg.X, msg.Y
+		return m, nil
+	case tea.MouseWheelMsg:
+		m.hoverX, m.hoverY = msg.X, msg.Y
+		return m, m.dashboardWheel(msg)
 	case tea.MouseClickMsg:
-		if page := dashboardClickPage(m.width, m.height, msg.X, msg.Y); page >= 0 {
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+		if page := dashboardClickPageWithLabels(m.width, m.height, msg.X, msg.Y, m.pageNames()); page >= 0 {
 			return m, m.switchPage(page)
 		}
 		wide := dashboardSidebarLayout(m.width, m.height)
 		contentClick := !wide && msg.Y >= 2 || wide && msg.X >= 19
-		if contentClick && m.page != dashboardOverviewPage && m.page != dashboardSettingsPage && msg.Y > 0 && msg.Y < m.height-1 {
+		if contentClick && m.page != dashboardOverviewPage && msg.Y > 0 && msg.Y < m.height-1 {
 			m.navFocused = false
 		}
-		return m, nil
+		return m, m.dashboardContentClick(msg)
 	case tea.KeyPressMsg:
 		key := msg.String()
+		m.hoverX, m.hoverY = -1, -1
 		if !m.busy {
 			m.notice = ""
 		}
 		if key == "ctrl+c" || key == "q" {
+			m.cancelAppearance()
 			if m.busy {
 				m.quitAfter = true
-				m.notice = "正在取消操作…"
+				m.notice = m.tr("state.cancelling")
+				m.noticeError = false
 				if m.actionCancel != nil {
 					m.actionCancel()
 				}
@@ -461,8 +537,11 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j", "right":
 				return m, m.switchPage((m.page + 1) % len(dashboardPages))
 			case "enter":
-				if m.page != dashboardOverviewPage && m.page != dashboardSettingsPage {
+				if m.page != dashboardOverviewPage {
 					m.navFocused = false
+					if m.page == dashboardSettingsPage {
+						m.focusAppearance()
+					}
 				}
 			}
 			return m, nil
@@ -473,10 +552,16 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.pageKey(key)
 	}
+	if m.picker != nil {
+		return m.updatePicker(msg)
+	}
 	return m, nil
 }
 
 func (m *dashboardModel) pageKey(key string) tea.Cmd {
+	if key == "/" {
+		return m.openPicker()
+	}
 	delta := 0
 	if key == "up" || key == "k" {
 		delta = -1
@@ -517,7 +602,7 @@ func (m *dashboardModel) pageKey(key string) tea.Cmd {
 			m.actionCancel = cancel
 			return func() tea.Msg {
 				err := controller.selectProxy(ctx, group.Name, name)
-				return dashboardActionMsg{message: "已选择 " + name, err: err}
+				return dashboardActionMsg{message: m.tr("dashboard.selected", name), err: err}
 			}
 		}
 	case dashboardSubscriptionsPage:
@@ -532,11 +617,11 @@ func (m *dashboardModel) pageKey(key string) tea.Cmd {
 				err := app.MutateRuntimeProfiles(ctx, nil, func(svc *subscription.Service) error {
 					if key == "u" {
 						_, err := svc.Update(subscription.DownloadOptions{}, name)
-						result = "已更新 " + name
+						result = m.tr("dashboard.updated", name)
 						return err
 					}
 					_, err := svc.Use(name)
-					result = "已应用 " + name
+					result = m.tr("dashboard.applied", name)
 					return err
 				})
 				return dashboardActionMsg{message: result, err: err}
@@ -552,7 +637,9 @@ func (m *dashboardModel) pageKey(key string) tea.Cmd {
 		}
 		if key == "c" {
 			m.logs = nil
+			m.logScroll = 0
 		}
+		m.logScroll = max(0, min(m.logScroll-delta, max(0, len(m.logs)-1)))
 	}
 	return nil
 }
@@ -588,8 +675,9 @@ func (m dashboardModel) View() tea.View {
 	if wide {
 		contentWidth = max(1, w-19)
 	}
-	boundaryColor := m.dashboardColor("#B7B3E4", "#4C4A79")
-	header := dashboardPages[m.page]
+	boundaryColor := themeColor(m.theme.Border)
+	pages := m.pageNames()
+	header := pages[m.page]
 	if !wide {
 		header = "proxyctl · " + header
 	}
@@ -599,6 +687,32 @@ func (m dashboardModel) View() tea.View {
 	}
 	bodyHeight := max(0, h-len(lines)-1)
 	body := m.pageLines(bodyHeight)
+	styledBody := false
+	if m.page == dashboardSettingsPage {
+		body = m.settingsViewLines(contentWidth, bodyHeight)
+		styledBody = true
+	}
+	if m.picker != nil {
+		body = strings.Split(m.picker.View(m.theme, contentWidth, bodyHeight), "\n")
+		styledBody = true
+	}
+	renderBody := func(value string, width, row int) string {
+		if styledBody {
+			return gridLine(value, width)
+		}
+		if row == 0 {
+			if header, ok := m.dashboardHeaderLine(width); ok {
+				return header
+			}
+		}
+		line := m.dashboardBodyLine(value, width)
+		b := m.contentBounds()
+		hover := m.dashboardRowAt(m.hoverX, m.hoverY)
+		if hover.kind != dashboardNoRow && hover == m.dashboardRowAt(b.X, b.Y+row) {
+			line = lipgloss.NewStyle().Background(themeColor(m.theme.Hover)).Render(line)
+		}
+		return line
+	}
 	for len(body) < bodyHeight {
 		body = append(body, "")
 	}
@@ -631,91 +745,111 @@ func (m dashboardModel) View() tea.View {
 			}
 			if i >= 3 && (i-3)%2 == 0 && (i-3)/2 < len(dashboardPages) {
 				index := (i - 3) / 2
-				nav = fmt.Sprintf("  %d  %s", index+1, dashboardPages[index])
+				nav = fmt.Sprintf("  %d  %s", index+1, pages[index])
 				selected = index == m.page
+				if selected {
+					nav = fmt.Sprintf("▶ %d  %s", index+1, pages[index])
+				}
 			}
-			navStyle := lipgloss.NewStyle().Foreground(m.dashboardColor("#68758A", "#8B95A7"))
+			navStyle := lipgloss.NewStyle().Foreground(themeColor(m.theme.Muted))
 			if i == 1 {
 				navStyle = navStyle.Foreground(m.styles.Indigo).Bold(true)
 			}
 			if selected {
 				if m.navFocused {
-					navStyle = navStyle.Foreground(lipgloss.Color("#FFFFFF")).Background(m.styles.Indigo).Bold(true)
+					navStyle = navStyle.Foreground(themeColor(m.theme.Foreground)).Background(themeColor(m.theme.Selected)).Bold(true)
 				} else {
-					navStyle = navStyle.Foreground(m.styles.Indigo).Bold(true)
+					navStyle = navStyle.Foreground(m.styles.Indigo).Background(themeColor(m.theme.Selected)).Bold(true)
 				}
+			}
+			if i >= 3 && (i-3)%2 == 0 && (i-3)/2 == m.hoverPage && !selected {
+				navStyle = navStyle.Foreground(themeColor(m.theme.Foreground)).Background(themeColor(m.theme.Hover))
 			}
 			if len(sidebarRates) > 0 && i >= sidebarRatesStart && i < sidebarRatesStart+len(sidebarRates) {
 				rateRow := i - sidebarRatesStart
 				nav = sidebarRates[rateRow]
 				switch rateRow {
 				case 0:
-					navStyle = navStyle.Foreground(m.dashboardColor("#C4C7D2", "#373A55"))
+					navStyle = navStyle.Foreground(themeColor(m.theme.Border))
 				case 1:
 					if m.trafficAvailable {
-						navStyle = navStyle.Foreground(m.dashboardColor("#C95E42", "#FF9470"))
+						navStyle = navStyle.Foreground(themeColor(m.theme.Warning))
 					}
 				case 2:
 					if m.trafficAvailable {
-						navStyle = navStyle.Foreground(m.dashboardColor("#2869C9", "#6EA8FF"))
+						navStyle = navStyle.Foreground(themeColor(m.theme.Primary))
 					}
 				}
 			}
 			left := navStyle.Render(dashboardLine(nav, 18, false))
-			divider := lipgloss.NewStyle().Foreground(m.styles.Indigo).Render("│")
-			lines = append(lines, left+divider+m.dashboardBodyLine(body[i], contentWidth))
+			divider := lipgloss.NewStyle().Foreground(themeColor(m.theme.Border)).Render("│")
+			lines = append(lines, left+divider+renderBody(body[i], contentWidth, i))
 		} else {
-			lines = append(lines, m.dashboardBodyLine(body[i], w))
+			lines = append(lines, renderBody(body[i], w, i))
 		}
 	}
-	footer := "内容: ↑↓ 选择  Esc 返回导航  Tab 切页  q 退出"
+	footer := m.tr("help.content")
 	if m.navFocused {
-		footer = "导航: ↑↓ 切页  Enter 进入内容  1-7 直达  q 退出"
+		footer = m.tr("help.nav")
 		if !wide {
-			footer = "导航: ←→/↑↓ 切页  Enter 进入内容  q 退出"
+			footer = m.tr("help.tabs")
 		}
-		if m.page == dashboardOverviewPage || m.page == dashboardSettingsPage {
-			footer = "导航: ↑↓ 切页  1-7 直达  r 刷新  q 退出"
+		if m.page == dashboardOverviewPage {
+			footer = m.tr("help.overview")
 			if !wide {
-				footer = "导航: ←→/↑↓ 切页  r 刷新  q 退出"
+				footer = m.tr("help.overview_tabs")
 			}
 		}
 	} else {
 		switch m.page {
 		case dashboardNodesPage:
-			footer = "节点: ←→ 切换焦点  ↑↓ 选择  Enter 操作  Esc 返回导航"
+			footer = m.tr("help.nodes")
 		case dashboardSubscriptionsPage:
-			footer = "订阅: ↑↓ 选择  Enter 应用  u 更新  Esc 返回导航"
+			footer = m.tr("help.subscriptions")
 		case dashboardConnectionsPage:
-			footer = "连接: ↑↓ 查看详情  Esc 返回导航"
+			footer = m.tr("help.connections")
 		case dashboardRulesPage:
-			footer = "规则: ↑↓ 浏览  r 刷新  Esc 返回导航"
+			footer = m.tr("help.rules")
 		case dashboardLogsPage:
-			footer = "日志: p 暂停  c 清屏  Esc 返回导航"
+			footer = m.tr("help.logs")
+		case dashboardSettingsPage:
+			footer = m.tr("help.appearance")
 		}
 	}
+	if m.appearance.dropdownOpen() {
+		footer = m.tr("help.preview")
+	}
+	if m.picker != nil {
+		footer = m.tr("help.picker")
+	}
 	if m.busy {
-		footer = "处理中…  请稍候"
+		footer = m.tr("state.working")
 	}
 	if m.notice != "" {
 		footer = m.notice
 	}
-	footerStyle := lipgloss.NewStyle().Foreground(m.dashboardColor("#909090", "#626262"))
+	footerStyle := lipgloss.NewStyle().Foreground(themeColor(m.theme.Muted))
 	if m.busy {
 		footerStyle = footerStyle.Foreground(m.styles.Indigo).Bold(true)
 	} else if m.notice != "" {
 		footerStyle = footerStyle.Foreground(m.styles.Green).Bold(true)
-		if strings.Contains(m.notice, "失败") || strings.Contains(m.notice, "error") || strings.Contains(m.notice, "HTTP ") {
+		if m.noticeError {
 			footerStyle = footerStyle.Foreground(m.styles.Red)
 		}
 	}
-	if m.notice != "" && (strings.Contains(m.notice, "失败") || strings.Contains(m.notice, "error") || strings.Contains(m.notice, "HTTP ")) {
+	if m.notice != "" && m.noticeError {
 		boundaryColor = m.styles.Red
 	}
 	lines = append(lines, m.dashboardBoundary(footer, w, lipgloss.Left, footerStyle, boundaryColor))
-	v := tea.NewView(strings.Join(lines, "\n"))
+	// Keep even a 1-row terminal within its reported character grid.
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	content := strings.Join(lines, "\n")
+	content = lipgloss.NewStyle().Background(themeColor(m.theme.Background)).Render(content)
+	v := tea.NewView(terminalContent(content, m.colorProfile))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeAllMotion
 	return v
 }
 
@@ -724,8 +858,12 @@ func dashboardSidebarLayout(width, height int) bool {
 }
 
 func dashboardClickPage(width, height, x, y int) int {
+	return dashboardClickPageWithLabels(width, height, x, y, dashboardPages[:])
+}
+
+func dashboardClickPageWithLabels(width, height, x, y int, pages []string) int {
 	if dashboardSidebarLayout(width, height) {
-		if x >= 18 || y < 4 {
+		if x < 0 || x >= 18 || y < 4 || y >= height-1 {
 			return -1
 		}
 		index := (y - 4) / 2
@@ -734,12 +872,12 @@ func dashboardClickPage(width, height, x, y int) int {
 		}
 		return -1
 	}
-	if y != 1 {
+	if x < 0 || x >= width || y != 1 || y >= height-1 {
 		return -1
 	}
 	start := 0
-	mode := dashboardTabLayout(width)
-	for i, label := range dashboardPages {
+	mode := dashboardTabLayoutWithLabels(width, pages)
+	for i, label := range pages {
 		end := start + lipgloss.Width(dashboardTab(i, label, false, mode))
 		if x >= start && x < end {
 			return i
@@ -750,22 +888,25 @@ func dashboardClickPage(width, height, x, y int) int {
 }
 
 func (m dashboardModel) dashboardTabs(width int) string {
+	pages := m.pageNames()
 	var parts []string
 	used := 0
-	mode := dashboardTabLayout(width)
-	for i, label := range dashboardPages {
+	mode := dashboardTabLayoutWithLabels(width, pages)
+	for i, label := range pages {
 		part := dashboardTab(i, label, i == m.page, mode)
 		partWidth := lipgloss.Width(part)
 		if used+partWidth > width {
 			break
 		}
-		style := lipgloss.NewStyle().Foreground(m.dashboardColor("#68758A", "#8B95A7"))
+		style := lipgloss.NewStyle().Foreground(themeColor(m.theme.Muted))
 		if i == m.page {
 			if m.navFocused {
-				style = style.Foreground(lipgloss.Color("#FFFFFF")).Background(m.styles.Indigo).Bold(true)
+				style = style.Foreground(themeColor(m.theme.Foreground)).Background(themeColor(m.theme.Selected)).Bold(true)
 			} else {
-				style = style.Foreground(m.styles.Indigo).Bold(true)
+				style = style.Foreground(m.styles.Indigo).Background(themeColor(m.theme.Selected)).Bold(true)
 			}
+		} else if i == m.hoverPage {
+			style = style.Foreground(themeColor(m.theme.Foreground)).Background(themeColor(m.theme.Hover))
 		}
 		parts = append(parts, style.Render(part))
 		used += partWidth
@@ -786,8 +927,12 @@ const (
 )
 
 func dashboardTabLayout(width int) dashboardTabMode {
+	return dashboardTabLayoutWithLabels(width, dashboardPages[:])
+}
+
+func dashboardTabLayoutWithLabels(width int, pages []string) dashboardTabMode {
 	fullWidth := 0
-	for i, label := range dashboardPages {
+	for i, label := range pages {
 		fullWidth += lipgloss.Width(dashboardTab(i, label, false, dashboardTabsFull))
 	}
 	switch {
@@ -800,10 +945,6 @@ func dashboardTabLayout(width int) dashboardTabMode {
 	default:
 		return dashboardTabsBareDigits
 	}
-}
-
-func (m dashboardModel) dashboardColor(light, dark string) color.Color {
-	return lipgloss.LightDark(m.darkBG)(lipgloss.Color(light), lipgloss.Color(dark))
 }
 
 func (m dashboardModel) dashboardBoundary(text string, width int, position lipgloss.Position, style lipgloss.Style, accent color.Color) string {
@@ -822,23 +963,23 @@ func (m dashboardModel) dashboardBoundary(text string, width int, position lipgl
 }
 
 func (m dashboardModel) dashboardBodyLine(value string, width int) string {
-	style := lipgloss.NewStyle().Foreground(m.dashboardColor("#202B40", "#D8DEE9"))
+	style := lipgloss.NewStyle().Foreground(themeColor(m.theme.Foreground))
 	if strings.Contains(value, "▶") {
 		if m.navFocused {
-			style = style.Foreground(m.dashboardColor("#68758A", "#8B95A7"))
+			style = style.Foreground(themeColor(m.theme.Muted))
 		} else {
-			style = style.Foreground(m.styles.Indigo).Bold(true)
+			style = style.Foreground(themeColor(m.theme.Foreground)).Background(themeColor(m.theme.Selected)).Bold(true)
 		}
-	} else if strings.Contains(value, "✓ 当前") {
+	} else if strings.Contains(value, strings.TrimSpace(m.tr("dashboard.current"))) {
 		style = style.Foreground(m.styles.Green)
-	} else if strings.HasPrefix(value, "  ◇") || strings.HasPrefix(value, "  代理组") || strings.HasPrefix(value, "  已保存订阅") || strings.HasPrefix(value, "  活跃连接") || strings.HasPrefix(value, "  规则") || strings.HasPrefix(value, "  实时日志") {
+	} else if strings.HasPrefix(value, "  ◇") || m.hasMessagePrefix(value, "dashboard.nodes_header", "dashboard.sub_header", "dashboard.connections", "dashboard.rules", "dashboard.logs_header") {
 		style = style.Foreground(m.styles.Indigo).Bold(true)
-	} else if strings.Contains(value, "失败") || strings.Contains(value, "错误") {
+	} else if m.hasMessagePrefix(value, "settings.error", "hint.nodes_failed", "hint.connections_failed", "hint.rules_failed") {
 		style = style.Foreground(m.styles.Red)
-	} else if strings.Contains(value, "运行中") || strings.Contains(value, "已启用") {
+	} else if strings.Contains(value, m.tr("state.running")) || strings.Contains(value, m.tr("state.enabled")) {
 		style = style.Foreground(m.styles.Green)
-	} else if strings.Contains(value, "未启用") || strings.Contains(value, "未选择") {
-		style = style.Foreground(m.dashboardColor("#68758A", "#8B95A7"))
+	} else if strings.Contains(value, m.tr("state.disabled")) || strings.Contains(value, m.tr("state.unselected")) {
+		style = style.Foreground(themeColor(m.theme.Muted))
 	}
 	return style.Render(dashboardLine(value, width, false))
 }
@@ -867,12 +1008,7 @@ func dashboardTab(index int, label string, selected bool, mode dashboardTabMode)
 
 func dashboardLine(value string, width int, highlight bool) string {
 	// Sanitize controls, then preserve complete grapheme clusters when clipping.
-	value = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, value)
+	value = singleLine(value)
 	line := ansi.Truncate(value, width, "")
 	if used := lipgloss.Width(line); used < width {
 		line += strings.Repeat(" ", width-used)
@@ -905,36 +1041,34 @@ func (m dashboardModel) pageLines(height int) []string {
 
 func (m dashboardModel) overviewLines() []string {
 	s := m.snapshot
-	lines := []string{"", "  ◇ 运行状态", "", "  内核        " + s.kernel, "  服务        " + s.service,
-		"  代理入口    " + s.proxy, "  本 shell    " + s.shell,
-		"", "  ◇ 订阅与流量", "", "  当前订阅    " + s.profile, fmt.Sprintf("  订阅数量    %d", len(s.profiles))}
+	lines := []string{"", m.tr("overview.status"), "", m.tr("settings.kernel", m.displayState(s.kernel)), m.tr("settings.service", m.displayState(s.service)), m.tr("settings.proxy", s.proxy), m.tr("settings.shell", m.displayState(s.shell)), "", m.tr("overview.traffic"), "", m.tr("settings.profile", m.displayState(s.profile)), m.tr("overview.count", len(s.profiles))}
 	if s.controller != nil && s.service == "运行中" {
-		lines = append(lines, "", fmt.Sprintf("  活跃连接    %d", len(s.connections.Connections)))
+		lines = append(lines, "", m.tr("overview.connections", len(s.connections.Connections)))
 		if len(s.groups) > 0 {
-			lines = append(lines, "  代理组      "+redact.Text(s.groups[0].Name+" → "+s.groups[0].Now))
+			lines = append(lines, m.tr("overview.groups", redact.Text(s.groups[0].Name+" → "+s.groups[0].Now)))
 		}
 	}
 	if s.controllerHint != "" {
-		lines = append(lines, "", "  "+s.controllerHint)
+		lines = append(lines, "", "  "+m.displayHint(s.controllerHint))
 	}
 	if s.err != nil {
-		lines = append(lines, "", "  状态读取失败: "+redact.Text(s.err.Error()))
+		lines = append(lines, "", m.tr("settings.error", redact.Text(s.err.Error())))
 	}
 	return lines
 }
 
 func (m dashboardModel) nodeLines(height int) []string {
 	if m.snapshot.controllerHint != "" && len(m.snapshot.groups) == 0 {
-		return []string{"", "  " + m.snapshot.controllerHint}
+		return []string{"", "  " + m.displayHint(m.snapshot.controllerHint)}
 	}
 	if len(m.snapshot.groups) == 0 {
-		return []string{"", "  没有可选择的代理组"}
+		return []string{"", m.tr("dashboard.no_groups")}
 	}
-	focus := "代理组"
+	focus := m.tr("dashboard.groups")
 	if m.nodeFocus {
-		focus = "节点"
+		focus = m.tr("dashboard.nodes")
 	}
-	lines := []string{"  代理组  ←/→ 切换焦点，Enter 选择  当前焦点: " + focus}
+	lines := []string{m.tr("dashboard.nodes_header", focus)}
 	groupLimit := min(len(m.snapshot.groups), max(2, height/3))
 	groupStart := listStart(m.group, groupLimit, len(m.snapshot.groups))
 	for i := groupStart; i < len(m.snapshot.groups) && i < groupStart+groupLimit; i++ {
@@ -946,7 +1080,7 @@ func (m dashboardModel) nodeLines(height int) []string {
 		lines = append(lines, "  "+mark+" "+redact.Text(g.Name+" → "+g.Now))
 	}
 	group, _ := m.selectedGroup()
-	lines = append(lines, "", "  "+redact.Text(group.Name)+" 的节点")
+	lines = append(lines, "", m.tr("dashboard.group_nodes", redact.Text(group.Name)))
 	available := max(0, height-len(lines))
 	start := listStart(m.node, available, len(group.All))
 	for i := start; i < len(group.All) && i < start+available; i++ {
@@ -957,7 +1091,7 @@ func (m dashboardModel) nodeLines(height int) []string {
 		}
 		selected := ""
 		if name == group.Now {
-			selected = "  ✓ 当前"
+			selected = m.tr("dashboard.current")
 		}
 		latency := ""
 		if p, ok := m.snapshot.proxies[name]; ok && len(p.History) > 0 {
@@ -969,9 +1103,9 @@ func (m dashboardModel) nodeLines(height int) []string {
 }
 
 func (m dashboardModel) profileLines(height int) []string {
-	lines := []string{"  已保存订阅  Enter 应用 · u 更新  （添加/编辑：proxyctl sub）", ""}
+	lines := []string{m.tr("dashboard.sub_header"), ""}
 	if len(m.snapshot.profiles) == 0 {
-		return append(lines, "  尚无订阅；运行 proxyctl sub add <url>")
+		return append(lines, m.tr("dashboard.no_subscriptions"))
 	}
 	available := max(0, height-len(lines))
 	start := listStart(m.profile, available, len(m.snapshot.profiles))
@@ -982,7 +1116,7 @@ func (m dashboardModel) profileLines(height int) []string {
 			mark = "▶"
 		}
 		if p.Name == m.snapshot.profile {
-			selected = "  ✓ 当前"
+			selected = m.tr("dashboard.current")
 		}
 		lines = append(lines, "  "+mark+" "+redact.Text(p.Name)+selected+"  "+redact.URL(p.URL))
 	}
@@ -991,12 +1125,12 @@ func (m dashboardModel) profileLines(height int) []string {
 
 func (m dashboardModel) connectionLines(height int) []string {
 	if m.snapshot.controllerHint != "" && len(m.snapshot.connections.Connections) == 0 {
-		return []string{"", "  " + m.snapshot.controllerHint}
+		return []string{"", "  " + m.displayHint(m.snapshot.controllerHint)}
 	}
 	items := m.snapshot.connections.Connections
-	lines := []string{fmt.Sprintf("  活跃连接 %d  ↑%s  ↓%s", len(items), byteCount(m.snapshot.connections.UploadTotal), byteCount(m.snapshot.connections.DownloadTotal)), ""}
+	lines := []string{m.tr("dashboard.connections", len(items), byteCount(m.snapshot.connections.UploadTotal), byteCount(m.snapshot.connections.DownloadTotal)), ""}
 	if len(items) == 0 {
-		return append(lines, "  当前没有连接")
+		return append(lines, m.tr("dashboard.no_connections"))
 	}
 	available := max(0, height-len(lines)-3)
 	start := listStart(m.connection, available, len(items))
@@ -1014,21 +1148,22 @@ func (m dashboardModel) connectionLines(height int) []string {
 		lines = append(lines, line)
 	}
 	selected := items[m.connection]
-	lines = append(lines, "", "  进程: "+redact.Text(selected.Metadata.Process)+"  代理链: "+redact.Text(strings.Join(selected.Chains, " → ")))
+	lines = append(lines, "", m.tr("dashboard.process", redact.Text(selected.Metadata.Process), redact.Text(strings.Join(selected.Chains, " → "))))
 	return lines
 }
 
 func (m dashboardModel) logLines(height int) []string {
-	lines := []string{"  实时日志  p 暂停/继续 · c 清屏"}
+	lines := []string{m.tr("dashboard.logs_header")}
 	if m.snapshot.controllerHint != "" && m.logCancel == nil {
-		return append(lines, "", "  "+m.snapshot.controllerHint)
+		return append(lines, "", "  "+m.displayHint(m.snapshot.controllerHint))
 	}
 	if m.logPaused {
-		lines[0] += "  [已暂停]"
+		lines[0] += m.tr("dashboard.paused")
 	}
 	available := max(0, height-len(lines))
-	start := max(0, len(m.logs)-available)
-	for _, line := range m.logs[start:] {
+	end := max(0, len(m.logs)-m.logScroll)
+	start := max(0, end-available)
+	for _, line := range m.logs[start:end] {
 		lines = append(lines, "  "+line)
 	}
 	return lines

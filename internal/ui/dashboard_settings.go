@@ -6,9 +6,13 @@ import (
 	"github.com/nelvko/proxyctl/internal/redact"
 )
 
-// settingsLines shows the settings that proxyctl can currently observe. Changes
-// are made with the existing CLI commands, so the dashboard stays read-only.
+// settingsLines shows observed runtime settings below the appearance controls.
+// Kernel and service changes continue to use the existing CLI commands.
 func (m dashboardModel) settingsLines(height int) []string {
+	return m.settingsContent(height, false)
+}
+
+func (m dashboardModel) settingsContent(height int, includeHelp bool) []string {
 	s := m.snapshot
 	apiState := "不可用"
 	if s.controller != nil {
@@ -21,40 +25,40 @@ func (m dashboardModel) settingsLines(height int) []string {
 		configFile = "-"
 	}
 	compact := height < 16
-	lines := []string{"  ◇ 当前设置"}
+	lines := []string{m.tr("settings.title")}
 	if !compact {
-		lines = []string{"", "  ◇ 当前设置", ""}
+		lines = []string{"", m.tr("settings.title"), ""}
 	}
 	lines = append(lines,
-		"  内核        "+redact.Text(s.kernel),
-		"  服务        "+redact.Text(s.service),
-		"  当前订阅    "+redact.Text(s.profile),
-		"  生效配置    "+redact.Text(configFile),
-		"  代理入口    "+redact.Text(s.proxy),
-		"  控制 API    "+apiState,
-		"  本 shell    "+redact.Text(s.shell),
+		m.tr("settings.kernel", redact.Text(m.displayState(s.kernel))),
+		m.tr("settings.service", redact.Text(m.displayState(s.service))),
+		m.tr("settings.profile", redact.Text(m.displayState(s.profile))),
+		m.tr("settings.file", redact.Text(configFile)),
+		m.tr("settings.proxy", redact.Text(s.proxy)),
+		m.tr("settings.api", m.displayState(apiState)),
+		m.tr("settings.shell", redact.Text(m.displayState(s.shell))),
 	)
 	if s.err != nil {
 		if !compact {
 			lines = append(lines, "")
 		}
-		lines = append(lines, "  状态读取失败: "+redact.Text(s.err.Error()))
+		lines = append(lines, m.tr("settings.error", redact.Text(s.err.Error())))
 	}
 	if s.controllerHint != "" {
 		if !compact {
 			lines = append(lines, "")
 		}
-		lines = append(lines, "  "+redact.Text(s.controllerHint))
+		lines = append(lines, "  "+redact.Text(m.displayHint(s.controllerHint)))
 	}
-	if !compact && height >= len(lines)+7 {
+	if includeHelp || !compact && height >= len(lines)+7 {
 		lines = append(lines,
 			"",
-			"  ◇ 修改方式",
+			m.tr("settings.modify"),
 			"",
-			"  切换内核    proxyctl use",
-			"  启停服务    proxyctl start / stop",
-			"  代理环境    proxyctl on / off",
-			"  配置覆盖    proxyctl sub override edit --global",
+			m.tr("settings.switch"),
+			m.tr("settings.service_cmd"),
+			m.tr("settings.env_cmd"),
+			m.tr("settings.override_cmd"),
 		)
 	}
 	return lines

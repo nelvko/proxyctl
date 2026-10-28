@@ -8,6 +8,7 @@ import (
 	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/internal/config"
 	pkernel "github.com/nelvko/proxyctl/internal/kernel"
+	"github.com/nelvko/proxyctl/internal/ui"
 )
 
 func promptInstall(ctx context.Context, cfg *config.Config) (string, error) {
@@ -31,7 +32,7 @@ func newInstallForm(cfg *config.Config, name *string) *huh.Form {
 		Description("Download a kernel and set up its user service.\nq / esc to cancel").
 		Options(installableOptions(cfg)...).
 		Value(name)
-	return huh.NewForm(huh.NewGroup(selection)).WithKeyMap(km)
+	return huh.NewForm(huh.NewGroup(selection)).WithTheme(ui.HuhTheme()).WithKeyMap(km)
 }
 
 func installableOptions(cfg *config.Config) []huh.Option[string] {

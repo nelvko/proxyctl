@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/ui"
 )
 
 // pickKernel prompts for an installed kernel. Callers report a cancelled pick
@@ -33,7 +34,7 @@ func pickKernel(title string, options []huh.Option[string]) (string, error) {
 				Options(options...).
 				Value(&name),
 		),
-	).WithKeyMap(km)
+	).WithTheme(ui.HuhTheme()).WithKeyMap(km)
 	if err := form.Run(); err != nil {
 		return "", err
 	}

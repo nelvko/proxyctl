@@ -20,7 +20,7 @@ func TestDashboardTrafficRateFormattingAndExpiry(t *testing.T) {
 			t.Errorf("dashboardRate(%d) = %q, want %q", test.bytesPerSecond, got, test.want)
 		}
 	}
-	m := newDashboardModel(context.Background())
+	m := newDashboardTestModel(context.Background())
 	m.trafficAvailable = true
 	m.trafficAt = time.Now().Add(-6 * time.Second)
 	canceled := false
@@ -33,7 +33,7 @@ func TestDashboardTrafficRateFormattingAndExpiry(t *testing.T) {
 }
 
 func TestDashboardTrafficIgnoresOldStreamSamples(t *testing.T) {
-	m := newDashboardModel(context.Background())
+	m := newDashboardTestModel(context.Background())
 	m.trafficGeneration = 2
 	m.trafficEvents = make(chan dashboardTrafficMsg)
 	updated, _ := m.Update(dashboardTrafficMsg{generation: 1, rate: dashboardTraffic{Up: 99}})

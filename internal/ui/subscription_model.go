@@ -16,11 +16,12 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/nelvko/proxyctl/internal/app"
 	"github.com/nelvko/proxyctl/internal/config"
+	"github.com/nelvko/proxyctl/internal/i18n"
 	"github.com/nelvko/proxyctl/internal/redact"
 	"github.com/nelvko/proxyctl/internal/subscription"
 )
@@ -29,15 +30,14 @@ const (
 	doublePressInterval = 300 * time.Millisecond
 
 	statusMessageLifetime = 2 * time.Second
-	appBoundaryMargin     = 1
 )
 
 type profile = config.Profile
 
 type item profile
 
-func (i item) Title() string       { return i.Name }
-func (i item) Description() string { return redact.URL(i.URL) }
+func (i item) Title() string       { return singleLine(i.Name) }
+func (i item) Description() string { return singleLine(redact.URL(i.URL)) }
 func (i item) FilterValue() string {
 	u, err := url.Parse(i.URL)
 	if err != nil {
@@ -88,39 +88,39 @@ type keyMap struct {
 }
 
 var keys = keyMap{
-	Modify: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "modify metadata")),
-	Show:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "show details")),
+	Modify: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "")),
+	Show:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "")),
 	More: key.NewBinding(
 		key.WithKeys("?"),
-		key.WithHelp("?", "more"),
+		key.WithHelp("?", ""),
 	),
 	EscCancel: key.NewBinding(
 		key.WithKeys("esc"),
-		key.WithHelp("esc", "cancel"),
+		key.WithHelp("esc", ""),
 	),
 	Add: key.NewBinding(
 		key.WithKeys("a"),
-		key.WithHelp("a", "add"),
+		key.WithHelp("a", ""),
 	),
 	Edit: key.NewBinding(
 		key.WithKeys("e"),
-		key.WithHelp("e", "edit config"),
+		key.WithHelp("e", ""),
 	),
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
-		key.WithHelp("dd", "remove"),
+		key.WithHelp("dd", ""),
 	),
 	Use: key.NewBinding(
 		key.WithKeys("enter"),
-		key.WithHelp("enter", "use"),
+		key.WithHelp("enter", ""),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q"),
-		key.WithHelp("q", "quit"),
+		key.WithHelp("q", ""),
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("u"),
-		key.WithHelp("u", "update"),
+		key.WithHelp("u", ""),
 	),
 }
 
@@ -136,9 +136,23 @@ type model struct {
 	formFocused  bool
 	formData     *profileForm
 	formOriginal *profile
-	details      *viewport.Model
 
-	styles styles
+	locale             i18n.Locale
+	dialog             Modal
+	dialogAction       string
+	removeTarget       *profile
+	toolbarFocus       int // -1 leaves keyboard focus on the list/form
+	hoverIndex         int
+	pointerX, pointerY int
+	pointerKnown       bool
+	feedback           string
+	feedbackID         uint64
+	workSpinner        spinner.Model
+
+	styles       styles
+	theme        Theme
+	themeConfig  config.ThemeConfig
+	colorProfile colorprofile.Profile
 
 	lastPress struct {
 		d time.Time
@@ -154,24 +168,33 @@ type addSubmittedMsg struct{}
 
 func initialModel(ctx context.Context, profiles *subscription.Service) model {
 	m := model{
-		profiles: profiles,
-		ctx:      ctx,
-		list:     list.New(listItemsFromProfiles(profiles), list.NewDefaultDelegate(), 0, 0),
+		profiles:     profiles,
+		ctx:          ctx,
+		list:         list.New(listItemsFromProfiles(profiles), list.NewDefaultDelegate(), 0, 0),
+		toolbarFocus: -1, hoverIndex: -1,
+		workSpinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
-	m.list.Styles.TitleBar = m.list.Styles.TitleBar.PaddingLeft(3)
-	m.list.SetSpinner(spinner.Dot)
+	preference, languageErr := config.LoadLanguage()
+	var resolveErr error
+	m.locale, resolveErr = i18n.Resolve(preference)
+	languageErr = errors.Join(languageErr, resolveErr)
 	m.list.Filter = filterProfiles
 	m.list.KeyMap.Quit = keys.Quit
+	// Keep native filtering, pagination and navigation. Render their labels in
+	// our locale because Bubbles' built-in status/empty strings are English.
+	m.list.SetShowTitle(false)
+	m.list.SetShowFilter(false)
+	m.list.SetShowStatusBar(false)
 	m.list.SetShowHelp(false)
-	m.list.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.Use, keys.Add, keys.Refresh}
+	m.list.SetShowPagination(false)
+	m.list.FilterInput.Prompt = m.tr("sub.filter_prompt")
+	m.list.FilterInput.Placeholder = m.tr("sub.filter_placeholder")
+	if languageErr != nil {
+		m.feedback = m.tr("language.load_failed", languageErr)
 	}
-	m.list.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.Use, keys.Add, keys.Refresh, keys.Show, keys.Modify, keys.Edit, keys.Delete}
-	}
-	m.list.Title = "selected: " + profiles.SelectedName()
-	m.list.SetStatusBarItemName("profile", "profiles")
-	m.list.StatusMessageLifetime = statusMessageLifetime
+	m.themeConfig, _ = loadThemeConfig()
+	m.applyTheme(true)
+	m.layoutSubscriptions()
 	return m
 }
 
@@ -179,21 +202,25 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(tea.RequestBackgroundColor, func() tea.Msg { <-m.ctx.Done(); return cancelRequestedMsg{} })
 }
 
-// message will be persistented if return nil, else will disappear after statusMessageLifetime
+type subscriptionFeedbackExpiredMsg uint64
+
 func (m *model) errorMessage(message string) tea.Cmd {
 	message = redact.Text(message)
 	m.err = errors.New(message)
-	m.list.NewStatusMessage(m.styles.statusFail.Render((message)))
+	m.showDialog("error", ModalOptions{Title: m.tr("sub.error"), Body: message, Kind: ModalError, Locale: m.locale})
 	return nil
 }
 
 func (m *model) pendingMessage(message string) tea.Cmd {
-	m.list.NewStatusMessage(message)
+	m.feedbackID++
+	m.feedback = redact.Text(message)
 	return nil
 }
 
 func (m *model) successMessage(message string) tea.Cmd {
-	return m.list.NewStatusMessage(m.styles.statusOk.Render(message))
+	m.pendingMessage(message)
+	id := m.feedbackID
+	return tea.Tick(statusMessageLifetime, func(time.Time) tea.Msg { return subscriptionFeedbackExpiredMsg(id) })
 }
 
 func (m *model) resetAddForm() {
@@ -206,7 +233,7 @@ func (m *model) resetAddForm() {
 
 func (m *model) cancelForm() tea.Cmd {
 	m.resetAddForm()
-	return m.successMessage("Canceled")
+	return m.successMessage(m.tr("sub.cancelled"))
 }
 
 func (m *model) openAddForm() tea.Cmd {
@@ -220,14 +247,16 @@ func (m *model) openProfileForm() tea.Cmd {
 		original = m.formOriginal.Name
 	}
 	previous := m.formData
-	f := newProfileForm(m.profiles, m.formDraft, original)
+	f := newProfileFormLocale(m.profiles, m.formDraft, original, m.locale)
 	if previous != nil {
 		f.timeout, f.headers, f.advanced = previous.timeout, previous.headers, previous.advanced
 	}
 	m.formData = f
-	m.form = f.form.WithShowHelp(false).WithWidth(max(1, m.width-4)).WithHeight(max(1, m.height-6))
+	m.form = f.form.WithTheme(staticHuhTheme(m.theme)).WithShowHelp(false)
 	m.form.SubmitCmd = func() tea.Msg { return addSubmittedMsg{} }
 	m.formFocused = true
+	m.toolbarFocus = -1
+	m.layoutSubscriptions()
 	return m.form.Init()
 }
 
@@ -243,6 +272,7 @@ func saveFormProfile(svc *subscription.Service, original, draft profile) error {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.layoutSubscriptions()
 	switch msg := msg.(type) {
 	case cancelRequestedMsg:
 		if m.busy {
@@ -250,7 +280,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
-			return m, m.pendingMessage("Cancelling…")
+			return m, m.pendingMessage(m.tr("sub.cancelling"))
 		}
 		return m, tea.Quit
 	case tea.KeyMsg:
@@ -259,7 +289,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cancel != nil {
 					m.cancel()
 				}
-				return m, m.pendingMessage("Cancelling…")
+				return m, m.pendingMessage(m.tr("sub.cancelling"))
 			}
 			return m, tea.Quit
 		}
@@ -267,20 +297,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.err != nil {
-			m.err = nil
-			return m, m.successMessage("")
+			switch msg.String() {
+			case "up", "down", "pgup", "pgdown", "home", "end", "ctrl+u", "ctrl+d":
+				// Long diagnostics remain readable from the keyboard; other
+				// keys retain the existing acknowledge-and-return behavior.
+			default:
+				m.err = nil
+				m.dialog.Close()
+				return m, nil
+			}
 		}
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		m.width, m.height = max(0, msg.Width), max(0, msg.Height)
+		m.layoutSubscriptions()
 	case tea.BackgroundColorMsg:
-		m.styles = newStyles(msg.IsDark())
+		m.applyTheme(msg.IsDark())
+		return m, nil
+	case tea.ColorProfileMsg:
+		m.colorProfile = msg.Profile
+		return m, nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		if m.busy {
+			m.workSpinner, cmd = m.workSpinner.Update(msg)
+		}
+		return m, cmd
+	case subscriptionFeedbackExpiredMsg:
+		if uint64(msg) == m.feedbackID && !m.busy {
+			m.feedback = ""
+		}
 		return m, nil
 	case addSubmittedMsg:
 		if m.busy {
 			return m, nil
 		}
 		if m.formDraft == nil {
-			return m, m.errorMessage("add form is not ready")
+			return m, m.errorMessage(m.tr("sub.form_not_ready"))
 		}
 		if err := m.formData.apply(); err != nil {
 			init := m.openProfileForm()
@@ -294,35 +346,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			original := *m.formOriginal
 			operation = m.startMetadataOperation(func(svc *subscription.Service) (string, error) {
 				err := saveFormProfile(svc, original, draft)
-				return "Metadata saved; press u to update the source.", err
+				return m.tr("sub.metadata_saved"), err
 			}, &draft)
 		} else {
 			operation = m.startRuntimeOperation(func(svc *subscription.Service) (string, error) {
 				if err := svc.Add(&draft); err != nil {
 					return "", err
 				}
-				message := "Added " + draft.Name
+				message := m.tr("sub.added", draft.Name)
 				if svc.SelectedName() == "" {
-					message += "; press enter to select and apply, then run proxyctl on."
+					message += m.tr("sub.next_steps")
 				}
 				return message, nil
 			}, &draft)
 		}
 		return m, operation
 	case operationFinishedMsg:
-		if msg.warnings != "" {
-			if msg.err != nil {
-				msg.err = errors.Join(msg.err, errors.New(msg.warnings))
-			} else {
-				msg.message += "\n" + msg.warnings
-			}
+		if msg.warnings != "" && msg.err != nil {
+			msg.err = errors.Join(msg.err, errors.New(msg.warnings))
 		}
 		m.busy = false
 		if m.cancel != nil {
 			m.cancel()
 			m.cancel = nil
 		}
-		m.list.StopSpinner()
 		if msg.profiles != nil {
 			// The completed operation context has been cancelled; preserve the UI lifetime.
 			m.profiles = msg.profiles.WithContext(m.ctx)
@@ -350,32 +397,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		m.list.Title = "selected: " + m.profiles.SelectedName()
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
-				message := "Cancelled"
+				message := m.tr("sub.cancelled")
 				if m.formDraft != nil {
-					message += "; draft retained"
+					message = m.tr("sub.cancelled_draft")
 				}
 				return m, tea.Batch(refresh, restore, m.successMessage(message))
 			}
 			return m, tea.Batch(refresh, restore, m.errorMessage(msg.err.Error()))
 		}
+		if msg.warnings != "" {
+			m.showDialog("notice", ModalOptions{Title: m.tr("sub.warning"), Body: redact.Text(msg.warnings), Kind: ModalWarning, Locale: m.locale})
+		}
 		return m, tea.Batch(refresh, m.successMessage(msg.message))
 	}
-	if m.details != nil {
-		if k, ok := msg.(tea.KeyMsg); ok && key.Matches(k, keys.EscCancel, keys.Quit) {
-			m.details = nil
-			return m, nil
+	if m.dialog.Active {
+		result, cmd := m.dialog.Update(msg)
+		if result.Cancelled || result.Confirmed {
+			m.err = nil
+			if result.Confirmed && m.dialogAction == "remove" && m.removeTarget != nil {
+				target := *m.removeTarget
+				m.removeTarget = nil
+				return m, m.removeProfile(target, true)
+			}
+			m.removeTarget = nil
 		}
-		m.details.SetWidth(max(1, m.width-4))
-		m.details.SetHeight(max(1, m.height-6))
-		v, cmd := m.details.Update(msg)
-		m.details = &v
+		return m, cmd
+	}
+	if m.busy {
+		return m, m.handleSubscriptionPointer(msg)
+	}
+	if cmd, handled := m.handleSubscriptionActions(msg); handled {
 		return m, cmd
 	}
 	if m.formFocused {
-		m.form.WithWidth(max(1, m.width-4)).WithHeight(max(1, m.height-6))
 		return m, m.handleForm(msg)
 	}
 	return m, m.handleList(msg)
@@ -392,7 +448,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 
 		selectedItem, ok := m.list.SelectedItem().(item)
 		if (!ok || len(m.list.Items()) == 0) && key.Matches(msg, keys.Delete, keys.Edit, keys.Modify, keys.Show, keys.Refresh, keys.Use) {
-			return m.errorMessage("No profiles available. Please add a profile first.")
+			return m.errorMessage(m.tr("sub.no_available"))
 		}
 
 		switch {
@@ -404,7 +460,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 				if err != nil {
 					return "", err
 				}
-				return ProfileUpdate(results[0]), nil
+				return m.profileUpdate(results[0]), nil
 			}, nil)
 		case key.Matches(msg, keys.Show):
 			svc, err := app.LoadProfileMetadata(m.ctx)
@@ -415,11 +471,7 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 			if err != nil {
 				return m.errorMessage(err.Error())
 			}
-			v := viewport.New()
-			v.SetWidth(max(1, m.width-4))
-			v.SetHeight(max(1, m.height-6))
-			v.SetContent(ProfileDetails(p, svc.SelectedName(), false))
-			m.details = &v
+			m.showDialog("details", ModalOptions{Title: m.tr("sub.details"), Body: m.profileDetails(p, svc.SelectedName()), Locale: m.locale})
 			return nil
 		case key.Matches(msg, keys.Modify):
 			svc, err := app.LoadProfileMetadata(m.ctx)
@@ -441,20 +493,16 @@ func (m *model) handleList(msg tea.Msg) tea.Cmd {
 				return nil
 			}
 			m.lastPress.d = time.Time{}
-			return m.startMetadataOperation(func(svc *subscription.Service) (string, error) {
-				err := svc.Delete(selectedItem.Name, false)
-				return "Removed " + selectedItem.Name, err
-			}, nil)
+			return m.removeProfile(profile(selectedItem), false)
 		case key.Matches(msg, keys.Use):
 			return m.startRuntimeOperation(func(svc *subscription.Service) (string, error) {
 				result, err := svc.Use(selectedItem.Name)
-				return Application(result), err
+				return m.application(result), err
 			}, nil)
 		case key.Matches(msg, keys.Quit):
 			return tea.Quit
 		case key.Matches(msg, keys.More):
-			m.list.SetShowHelp(!m.list.ShowHelp())
-			m.list.Help.ShowAll = m.list.ShowHelp()
+			m.showDialog("help", ModalOptions{Title: m.tr("sub.help"), Body: m.tr("sub.full_help"), Locale: m.locale})
 			return nil
 		}
 	}

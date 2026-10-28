@@ -1,9 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
+	"strings"
 
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -17,12 +18,12 @@ type styles struct {
 }
 
 func newStyles(darkBG bool) styles {
-	lightDark := lipgloss.LightDark(darkBG)
-	s := styles{}
+	theme, _ := resolveTheme(defaultThemeConfig(), darkBG)
+	return newThemedStyles(theme)
+}
 
-	s.Red = lightDark(lipgloss.Color("#FE5F86"), lipgloss.Color("#FE5F86"))
-	s.Indigo = lightDark(lipgloss.Color("#5A56E0"), lipgloss.Color("#7571F9"))
-	s.Green = lightDark(lipgloss.Color("#02BA84"), lipgloss.Color("#02BF87"))
+func newThemedStyles(theme Theme) styles {
+	s := styles{Red: themeColor(theme.Error), Indigo: themeColor(theme.Primary), Green: themeColor(theme.Success)}
 
 	s.HeaderText = lipgloss.NewStyle().
 		Foreground(s.Indigo).
@@ -31,67 +32,90 @@ func newStyles(darkBG bool) styles {
 	s.ErrorHeaderText = s.HeaderText.
 		Foreground(s.Red)
 
-	s.statusOk = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	s.statusFail = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	s.statusOk = lipgloss.NewStyle().Foreground(s.Green)
+	s.statusFail = lipgloss.NewStyle().Foreground(s.Red)
 
 	return s
 }
 
 func (m model) View() tea.View {
-	var header, body, footer string
-	list := m.list
-
-	if m.err != nil {
-		header = m.appErrorBoundaryView(lipgloss.Center, "Subscription")
-		footer = m.appErrorBoundaryView(lipgloss.Left, "Press any key to continue")
-		bodyHeight := m.bodyHeight(header, footer)
-
-		messageWidth := m.width - 2*m.list.Styles.TitleBar.GetPaddingLeft() - lipgloss.Width(m.list.Title) - 4
-		if lipgloss.Width(m.err.Error()) > messageWidth {
-			header = m.appErrorBoundaryView(lipgloss.Center, "WARNING")
-			body = lipgloss.NewStyle().Width(m.width).Height(bodyHeight).AlignVertical(lipgloss.Center).Render(m.err.Error())
-		} else {
-			list.SetSize(m.width, bodyHeight)
-			body = list.View()
+	layout := m.layoutSubscriptions()
+	lines := make([]string, max(0, m.height))
+	put := func(y int, content string) {
+		if y >= 0 && y < len(lines) {
+			lines[y] = content
 		}
+	}
+	put(0, m.appBoundaryView(lipgloss.Center, m.tr("sub.title")))
+	put(1, " "+m.tr("sub.selected", singleLine(m.profiles.SelectedName())))
+	for _, action := range layout.actions {
+		gap := action.Bounds.X - lipgloss.Width(lines[action.Bounds.Y])
+		put(action.Bounds.Y, lines[action.Bounds.Y]+strings.Repeat(" ", max(0, gap))+action.View(m.theme, action.Bounds.Width))
+	}
+	message := m.feedback
+	if m.busy {
+		message = m.workSpinner.View() + " " + message
+	} else if !m.formFocused {
+		if m.list.FilterState() == list.Filtering {
+			message = m.list.FilterInput.View()
+		} else if message == "" {
+			message = m.tr("sub.filter_prompt") + m.list.FilterValue() + "  /"
+		}
+	}
+	put(layout.message.Y, message)
+	body := ""
+	if m.formFocused && m.form != nil {
+		body = m.form.View()
+	} else if len(m.list.VisibleItems()) == 0 {
+		key := "sub.no_matches"
+		if len(m.list.Items()) == 0 {
+			key = "sub.empty"
+		}
+		body = " " + m.tr(key)
 	} else {
-		header = m.appBoundaryView(lipgloss.Center, "Subscription")
-		switch {
-		case m.details != nil:
-			footer = m.appBoundaryView(lipgloss.Left, "↑/↓ scroll · esc/q back")
-		case m.formFocused:
-			footer = m.appBoundaryView(lipgloss.Left, m.form.Help().ShortHelpView(append(m.form.KeyBinds(), keys.EscCancel)))
-		case m.busy:
-			footer = m.appBoundaryView(lipgloss.Left, "Working…  ctrl+c cancel")
-		case m.list.ShowHelp():
-			footer = m.appBoundaryView(lipgloss.Left, "")
-		default:
-			footer = m.appBoundaryView(lipgloss.Left, m.shortHelp())
-		}
-
-		bodyHeight := m.bodyHeight(header, footer)
-		if m.details != nil {
-			body = m.details.View()
-		} else if m.formFocused {
-			body = m.form.View()
-		} else {
-			list.SetSize(m.width, bodyHeight)
-			body = list.View()
-		}
+		body = m.list.View()
 	}
-
-	body = lipgloss.NewStyle().Margin(appBoundaryMargin, 0).Render(body)
-	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+	for i, line := range strings.Split(body, "\n") {
+		if i >= layout.list.Height {
+			break
+		}
+		put(layout.list.Y+i, line)
+	}
+	count := m.tr("sub.count", len(m.list.Items()))
+	if m.list.IsFiltered() {
+		count = m.tr("sub.filtered_count", len(m.list.VisibleItems()), len(m.list.Items()))
+	}
+	if m.list.Paginator.TotalPages > 1 {
+		count += fmt.Sprintf("  %d/%d", m.list.Paginator.Page+1, m.list.Paginator.TotalPages)
+	}
+	if !m.formFocused {
+		put(m.height-2, count)
+	}
+	help := m.tr("sub.key_help")
+	switch {
+	case m.err != nil:
+		help = m.tr("sub.ack_error")
+	case m.busy:
+		help = "ctrl+c " + m.tr("sub.cancel")
+	case m.formFocused:
+		help = m.tr("sub.form_help")
+	case m.list.FilterState() == list.Filtering:
+		help = m.tr("sub.filter_help")
+	case m.toolbarFocus >= 0:
+		help = m.tr("sub.toolbar_help")
+	}
+	put(m.height-1, lipgloss.NewStyle().Foreground(themeColor(m.theme.Muted)).Render(help))
+	for i := range lines {
+		lines[i] = gridLine(lines[i], m.width)
+	}
+	content := lipgloss.NewStyle().Foreground(themeColor(m.theme.Foreground)).Background(themeColor(m.theme.Background)).Render(strings.Join(lines, "\n"))
+	if m.dialog.Active {
+		content = m.dialog.Overlay(content, m.theme, m.width, m.height)
+	}
+	v := tea.NewView(terminalContent(modalGrid(content, m.width, m.height), m.colorProfile))
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeAllMotion
 	return v
-}
-
-func (m model) bodyHeight(header, footer string) int {
-	bodyHeight := m.height - 2*appBoundaryMargin - lipgloss.Height(header) - lipgloss.Height(footer)
-	if bodyHeight < 0 {
-		return 0
-	}
-	return bodyHeight
 }
 
 func (m model) appBoundaryView(position lipgloss.Position, text string) string {
@@ -100,27 +124,6 @@ func (m model) appBoundaryView(position lipgloss.Position, text string) string {
 		position,
 		m.styles.HeaderText.Render(text),
 		lipgloss.WithWhitespaceChars("/"),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(m.styles.Indigo)),
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(themeColor(m.theme.Border))),
 	)
-}
-
-func (m model) appErrorBoundaryView(position lipgloss.Position, text string) string {
-	return lipgloss.PlaceHorizontal(
-		m.width,
-		position,
-		m.styles.ErrorHeaderText.Render(text),
-		lipgloss.WithWhitespaceChars("/"),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(m.styles.Red)),
-	)
-}
-
-func (m model) shortHelp() string {
-	if m.list.FilterState() == list.Filtering {
-		return m.list.Help.ShortHelpView(m.list.ShortHelp())
-	}
-	if m.width < 45 {
-		return "enter use · / filter · ? help · q quit"
-	}
-	bindings := []key.Binding{m.list.KeyMap.CursorUp, m.list.KeyMap.CursorDown, m.list.KeyMap.Filter, keys.Use, keys.Add, keys.Refresh, keys.More, keys.Quit}
-	return m.list.Help.ShortHelpView(bindings)
 }

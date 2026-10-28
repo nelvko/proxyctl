@@ -8,7 +8,7 @@ import (
 )
 
 func TestDashboardSettingsShowActiveConfigWithoutControllerSecret(t *testing.T) {
-	m := newDashboardModel(context.Background())
+	m := newDashboardTestModel(context.Background())
 	m.snapshot.kernel = "mihomo"
 	m.snapshot.service = "运行中"
 	m.snapshot.profile = "work"
@@ -28,7 +28,7 @@ func TestDashboardSettingsShowActiveConfigWithoutControllerSecret(t *testing.T) 
 }
 
 func TestDashboardSettingsCompactAndRedactedWhenUnavailable(t *testing.T) {
-	m := newDashboardModel(context.Background())
+	m := newDashboardTestModel(context.Background())
 	m.snapshot.controllerHint = "控制 API 未启用；配置 http://user:pass@example.com/private?token=secret"
 	m.snapshot.err = errors.New("read https://user:pass@example.com/private?token=secret failed")
 	view := strings.Join(m.settingsLines(13), "\n")

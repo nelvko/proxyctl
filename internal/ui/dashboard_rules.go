@@ -8,12 +8,12 @@ import (
 
 func (m dashboardModel) ruleLines(height int) []string {
 	if m.snapshot.controllerHint != "" && len(m.snapshot.rules) == 0 {
-		return []string{"", "  " + m.snapshot.controllerHint}
+		return []string{"", "  " + m.displayHint(m.snapshot.controllerHint)}
 	}
 	rules := m.snapshot.rules
-	lines := []string{fmt.Sprintf("  规则 %d 条  ·  r 刷新", len(rules)), ""}
+	lines := []string{m.tr("dashboard.rules", len(rules)), ""}
 	if len(rules) == 0 {
-		return append(lines, "  当前没有规则")
+		return append(lines, m.tr("dashboard.no_rules"))
 	}
 	available := max(0, height-len(lines))
 	start := listStart(m.rule, available, len(rules))

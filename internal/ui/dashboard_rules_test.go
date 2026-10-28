@@ -10,7 +10,7 @@ import (
 )
 
 func TestDashboardRulesBrowseAndRedact(t *testing.T) {
-	m := newDashboardModel(context.Background())
+	m := newDashboardTestModel(context.Background())
 	m.width, m.height, m.page = 80, 8, 4
 	m.navFocused = false
 	m.snapshot.rules = []dashboardRule{
@@ -35,7 +35,7 @@ func TestDashboardRulesBrowseAndRedact(t *testing.T) {
 }
 
 func TestDashboardRulesRefreshEveryFifthTick(t *testing.T) {
-	m := newDashboardModel(context.Background())
+	m := newDashboardTestModel(context.Background())
 	m.page, m.loading = dashboardRulesPage, false
 	for i := 0; i < 4; i++ {
 		updated, _ := m.Update(dashboardTickMsg{})
